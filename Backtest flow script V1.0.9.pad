@@ -1,0 +1,1339 @@
+# Initialize variables with enhanced error handling
+TRY
+    SET mt5Path TO "C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe"
+    SET eaPath TO "C:\Users\kigundu\AppData\Roaming\MetaQuotes\Terminal\53785E099C927DB68A545C249CDBCE06\MQL5\Experts\Custom EAs\Moving Average"
+    SET reportPath TO "D:\FOREX\FOREX DOCUMENTS\MT5 STRATEGY TESTER REPORTS\Reports"
+    SET startDate TO "2019.01.01"
+    SET endDate TO "2024.12.31"
+    SET reportCounter TO 1
+    SET maxWaitTimeForTest TO 180  # Maximum wait time for test completion (3 minutes)
+    SET initialLoadTime TO 15      # Initial load time for MT5
+    SET maxRetries TO 3            # Maximum number of retries for operations
+    SET skipOnError TO true        # Skip to next item on error instead of stopping
+    SET autoRestartOnFailure TO true  # Auto restart MT5 on consecutive failures
+    SET maxConsecutiveFailures TO 5   # Number of failures before restart
+    SET consecutiveFailures TO 0      # Counter for consecutive failures
+    
+    # Adaptive waiting parameters
+    SET adaptiveWaitEnabled TO true     # Enable adaptive waiting times
+    SET baseWaitMultiplier TO 1.0       # Base multiplier for wait times (increase for slower systems)
+    SET maxAdaptiveWaitMultiplier TO 5  # Maximum multiplier for adaptive waits
+    SET currentAdaptiveMultiplier TO 1.0 # Current adaptive multiplier (will adjust dynamically)
+    SET systemLoadCheckInterval TO 300   # Check system load every 5 minutes
+    SET lastSystemLoadCheck TO 0         # Time tracker for system load checks
+    SET lowMemoryThreshold TO 200        # Low memory threshold in MB
+    SET availableMemory TO 1000          # Initial value, will be updated
+    
+    # Create log file for tracking progress and errors
+    SET logFilePath TO "D:\FOREX\FOREX DOCUMENTS\MT5 STRATEGY TESTER REPORTS\automation_log.txt"
+    
+    # Error screenshots path
+    SET errorScreenshotsPath TO "%reportPath%\errors"
+    
+    # Checkpoint file for resume functionality
+    SET checkpointFile TO "%reportPath%\checkpoint.json"
+    SET eaIndex TO 0
+    SET currencyIndex TO 0
+    SET timeframeIndex TO 0
+    SET resumeFromCheckpoint TO false
+    
+    # Configuration file path
+    SET configFilePath TO "%reportPath%\backtest_config.txt"
+    
+    # Check if paths exist
+    IF FOLDER NOT EXISTS "%mt5Path%"
+        THROW "MetaTrader 5 path does not exist: %mt5Path%"
+    END IF
+    
+    IF FOLDER NOT EXISTS "%eaPath%"
+        THROW "EA path does not exist: %eaPath%"
+    END IF
+    
+    IF FOLDER NOT EXISTS "%reportPath%"
+        # Create reports folder if it doesn't exist
+        CREATE FOLDER "%reportPath%"
+    END IF
+    
+    IF FOLDER NOT EXISTS "%errorScreenshotsPath%"
+        CREATE FOLDER "%errorScreenshotsPath%"
+    END IF
+    
+    # Log start of execution
+    APPEND TEXT "Started execution at %CURRENT DATE% %CURRENT TIME%\r\n" TO FILE "%logFilePath%"
+    APPEND TEXT "Using MT5 path: %mt5Path%\r\n" TO FILE "%logFilePath%"
+    APPEND TEXT "Using EA path: %eaPath%\r\n" TO FILE "%logFilePath%"
+CATCH
+    DISPLAY MESSAGE "Error during initialization: %ERROR MESSAGE%"
+    
+    # Log error and continue if possible
+    APPEND TEXT "Error during initialization: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+    
+    IF %skipOnError%
+        APPEND TEXT "Continuing despite initialization error...\r\n" TO FILE "%logFilePath%"
+    ELSE
+        EXIT FLOW
+    END IF
+END TRY
+
+# Function to load configuration
+FUNCTION LoadConfiguration
+    IF FILE EXISTS "%configFilePath%"
+        TRY
+            APPEND TEXT "Loading configuration from %configFilePath%\r\n" TO FILE "%logFilePath%"
+            READ FILE "%configFilePath%" STORE RESULT IN configData
+            
+            # Parse config data line by line
+            SPLIT TEXT "%configData%" BY "\r\n" STORE RESULT IN configLines
+            
+            FOR EACH configLine IN %configLines%
+                # Skip empty lines and comments
+                IF "%configLine%" = "" OR STARTS WITH "%configLine%" "#"
+                    CONTINUE
+                END IF
+                
+                # Extract key and value
+                SPLIT TEXT "%configLine%" BY "=" STORE RESULT IN keyValue
+                IF COUNT OF LIST keyValue = 2
+                    SET configKey TO ITEM 1 FROM LIST keyValue
+                    SET configValue TO ITEM 2 FROM LIST keyValue
+                    
+                    # Trim whitespace
+                    SET configKey TO TRIM "%configKey%"
+                    SET configValue TO TRIM "%configValue%"
+                    
+                    # Apply configuration based on key
+                    IF "%configKey%" = "mt5Path"
+                        SET mt5Path TO "%configValue%"
+                    ELSIF "%configKey%" = "eaPath"
+                        SET eaPath TO "%configValue%"
+                    ELSIF "%configKey%" = "reportPath"
+                        SET reportPath TO "%configValue%"
+                    ELSIF "%configKey%" = "startDate"
+                        SET startDate TO "%configValue%"
+                    ELSIF "%configKey%" = "endDate"
+                        SET endDate TO "%configValue%"
+                    ELSIF "%configKey%" = "maxWaitTimeForTest"
+                        SET maxWaitTimeForTest TO %configValue%
+                    ELSIF "%configKey%" = "initialLoadTime"
+                        SET initialLoadTime TO %configValue%
+                    ELSIF "%configKey%" = "maxRetries"
+                        SET maxRetries TO %configValue%
+                    ELSIF "%configKey%" = "skipOnError"
+                        SET skipOnError TO %configValue%
+                    ELSIF "%configKey%" = "autoRestartOnFailure"
+                        SET autoRestartOnFailure TO %configValue%
+                    ELSIF "%configKey%" = "maxConsecutiveFailures"
+                        SET maxConsecutiveFailures TO %configValue%
+                    ELSIF "%configKey%" = "adaptiveWaitEnabled"
+                        SET adaptiveWaitEnabled TO %configValue%
+                    ELSIF "%configKey%" = "baseWaitMultiplier"
+                        SET baseWaitMultiplier TO %configValue%
+                    ELSIF "%configKey%" = "maxAdaptiveWaitMultiplier"
+                        SET maxAdaptiveWaitMultiplier TO %configValue%
+                    ELSIF "%configKey%" = "systemLoadCheckInterval"
+                        SET systemLoadCheckInterval TO %configValue%
+                    ELSIF "%configKey%" = "lowMemoryThreshold"
+                        SET lowMemoryThreshold TO %configValue%
+                    END IF
+                    
+                    APPEND TEXT "Config: %configKey% = %configValue%\r\n" TO FILE "%logFilePath%"
+                END IF
+            END FOR
+            
+            APPEND TEXT "Configuration loaded successfully\r\n" TO FILE "%logFilePath%"
+        CATCH
+            APPEND TEXT "Error loading configuration: %ERROR MESSAGE%. Using default settings.\r\n" TO FILE "%logFilePath%"
+        END TRY
+    ELSE
+        APPEND TEXT "No configuration file found at %configFilePath%. Using default settings.\r\n" TO FILE "%logFilePath%"
+    END IF
+END FUNCTION
+
+# Define adaptive wait function
+FUNCTION AdaptiveWait
+    PARAMETERS waitTime
+    
+    IF %adaptiveWaitEnabled%
+        SET adjustedWaitTime TO %waitTime% * %currentAdaptiveMultiplier%
+        WAIT %adjustedWaitTime%
+    ELSE
+        WAIT %waitTime%
+    END IF
+END FUNCTION
+
+# Function to capture error state with screenshots
+FUNCTION CaptureErrorState
+    PARAMETERS errorContext
+    
+    TRY
+        # Format timestamp for filename
+        SET timestamp TO REPLACE ":" WITH "-" IN "%CURRENT TIME%"
+        SET timestamp TO REPLACE " " WITH "_" IN "%timestamp%"
+        SET timestamp TO REPLACE "/" WITH "-" IN "%CURRENT DATE%_%timestamp%"
+        
+        # Take screenshot of error state
+        CAPTURE SCREENSHOT "%errorScreenshotsPath%\error_%errorContext%_%timestamp%.png"
+        APPEND TEXT "Error screenshot saved: error_%errorContext%_%timestamp%.png\r\n" TO FILE "%logFilePath%"
+        
+        # Try to save any partial results if in Strategy Tester
+        IF WINDOW "Strategy Tester" EXISTS
+            SEND KEYS Ctrl+s WINDOW "Strategy Tester"
+            CALL AdaptiveWait WITH PARAMETERS 2
+            
+            # Set partial results filename
+            SET partialFileName TO "partial_%errorContext%_%timestamp%"
+            SEND KEYS "%reportPath%\%partialFileName%" WINDOW "Save As"
+            CALL AdaptiveWait WITH PARAMETERS 1
+            SEND KEYS Enter WINDOW "Save As"
+            CALL AdaptiveWait WITH PARAMETERS 2
+            
+            APPEND TEXT "Partial results saved: %partialFileName%\r\n" TO FILE "%logFilePath%"
+        END IF
+    CATCH
+        APPEND TEXT "Failed to capture error state: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+    END TRY
+END FUNCTION
+
+# Function to save checkpoint
+FUNCTION SaveCheckpoint
+    TRY
+        # Create checkpoint data
+        SET checkpointData TO "{"
+        SET checkpointData TO "%checkpointData%\"eaIndex\": %eaIndex%, "
+        SET checkpointData TO "%checkpointData%\"currencyIndex\": %currencyIndex%, "
+        SET checkpointData TO "%checkpointData%\"timeframeIndex\": %timeframeIndex%, "
+        SET checkpointData TO "%checkpointData%\"eaName\": \"%eaName%\", "
+        SET checkpointData TO "%checkpointData%\"currency\": \"%currency%\", "
+        SET checkpointData TO "%checkpointData%\"timeframe\": \"%timeframe%\", "
+        SET checkpointData TO "%checkpointData%\"reportCounter\": %reportCounter%"
+        SET checkpointData TO "%checkpointData%}"
+        
+        # Write checkpoint data to file
+        WRITE TEXT "%checkpointData%" TO FILE "%checkpointFile%"
+        APPEND TEXT "Checkpoint saved: EA=%eaName%, Currency=%currency%, Timeframe=%timeframe%\r\n" TO FILE "%logFilePath%"
+    CATCH
+        APPEND TEXT "Failed to save checkpoint: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+    END TRY
+END FUNCTION
+
+# Function to perform memory cleanup
+FUNCTION PerformMemoryCleanup
+    # Only perform cleanup when memory is critically low
+    IF %availableMemory% < (%lowMemoryThreshold% / 2)
+        APPEND TEXT "Performing memory cleanup due to low memory (%availableMemory% MB)...\r\n" TO FILE "%logFilePath%"
+        
+        # Attempt to free memory by restarting Explorer (lightweight cleanup)
+        TRY
+            KILL PROCESS "explorer.exe" WAIT FOR COMPLETION Yes
+            CALL AdaptiveWait WITH PARAMETERS 3
+            RUN PROGRAM "explorer.exe" WAIT FOR COMPLETION No
+            CALL AdaptiveWait WITH PARAMETERS 5
+            
+            # Check if cleanup helped
+            GET SYSTEM AVAILABLE MEMORY IN MB STORE RESULT IN newAvailableMemory
+            APPEND TEXT "Memory after cleanup: %newAvailableMemory% MB (was %availableMemory% MB)\r\n" TO FILE "%logFilePath%"
+            SET availableMemory TO %newAvailableMemory%
+        CATCH
+            APPEND TEXT "Memory cleanup attempt failed: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+        END TRY
+    END IF
+END FUNCTION
+
+# Enhanced system resource check function
+FUNCTION DetailedSystemCheck
+    # Get current time
+    SET currentTime TO %CURRENT TIME IN SECONDS%
+    
+    # Only check periodically to avoid overhead
+    IF %currentTime% - %lastSystemLoadCheck% >= %systemLoadCheckInterval%
+        SET lastSystemLoadCheck TO %currentTime%
+        
+        # Get available memory
+        GET SYSTEM AVAILABLE MEMORY IN MB STORE RESULT IN availableMemory
+        
+        # Get CPU usage if available
+        TRY
+            GET CPU USAGE PERCENTAGE STORE RESULT IN cpuUsage
+        CATCH
+            SET cpuUsage TO 50  # Default value if can't get actual CPU usage
+        END TRY
+        
+        # Get disk space if available
+        TRY
+            GET DISK FREE SPACE IN GB STORE RESULT IN diskSpace
+        CATCH
+            SET diskSpace TO 50  # Default value if can't get actual disk space
+        END TRY
+        
+        # Log current system state
+        APPEND TEXT "System check: CPU: %cpuUsage%%, Memory: %availableMemory% MB, Disk: %diskSpace% GB\r\n" TO FILE "%logFilePath%"
+        
+        # Adjust wait multiplier based on all system metrics
+        IF %cpuUsage% > 90 OR %availableMemory% < %lowMemoryThreshold%
+            # Critical system load - maximum wait times
+            SET currentAdaptiveMultiplier TO %maxAdaptiveWaitMultiplier%
+            APPEND TEXT "Critical system load detected. Increasing wait times to maximum.\r\n" TO FILE "%logFilePath%"
+            
+            # Check if we need to perform memory cleanup
+            CALL PerformMemoryCleanup
+        ELSIF %cpuUsage% > 70 OR %availableMemory% < %lowMemoryThreshold% * 2
+            # High system load - increase wait times
+            SET currentAdaptiveMultiplier TO MIN(%maxAdaptiveWaitMultiplier%, %currentAdaptiveMultiplier% * 1.5)
+            APPEND TEXT "High system load detected. Increasing wait multiplier to %currentAdaptiveMultiplier%\r\n" TO FILE "%logFilePath%"
+        ELSIF %cpuUsage% < 40 AND %availableMemory% > %lowMemoryThreshold% * 3
+            # Low system load - decrease wait times
+            SET currentAdaptiveMultiplier TO MAX(1.0, %currentAdaptiveMultiplier% * 0.8)
+            APPEND TEXT "Low system load detected. Decreasing wait multiplier to %currentAdaptiveMultiplier%\r\n" TO FILE "%logFilePath%"
+        ELSE
+            # Moderate system load - gradually normalize wait times
+            SET currentAdaptiveMultiplier TO MAX(1.0, %currentAdaptiveMultiplier% * 0.95)
+        END IF
+        
+        # Check disk space and warn if low
+        IF %diskSpace% < 5
+            APPEND TEXT "WARNING: Low disk space (%diskSpace% GB). Results may not be saved properly.\r\n" TO FILE "%logFilePath%"
+        END IF
+    END IF
+END FUNCTION
+
+# Function to estimate test duration
+FUNCTION EstimateTestDuration
+    PARAMETERS currency timeframe
+    
+        # Base estimates on timeframe (in seconds)
+    IF "%timeframe%" = "M1"
+        SET baseDuration TO 300  # 5 minutes
+    ELSIF "%timeframe%" = "M5"
+        SET baseDuration TO 240  # 4 minutes
+    ELSIF "%timeframe%" = "M15"
+        SET baseDuration TO 180  # 3 minutes
+        ELSIF "%timeframe%" = "M30"
+        SET baseDuration TO 150  # 2.5 minutes
+    ELSIF "%timeframe%" = "H1"
+        SET baseDuration TO 120  # 2 minutes
+    ELSIF "%timeframe%" = "H4"
+        SET baseDuration TO 90   # 1.5 minutes
+    ELSIF "%timeframe%" = "D1"
+        SET baseDuration TO 60   # 1 minute
+    ELSE
+        SET baseDuration TO 180  # 3 minutes default
+    END IF
+    
+    # Adjust for currency pair complexity (some pairs take longer)
+    IF "%currency%" = "EURUSD" OR "%currency%" = "GBPUSD" OR "%currency%" = "USDJPY"
+        # Major pairs typically have more data and take longer
+        SET currencyMultiplier TO 1.2
+    ELSIF CONTAINS "%currency%" "JPY" OR CONTAINS "%currency%" "CHF"
+        # Cross pairs with JPY or CHF often take longer
+        SET currencyMultiplier TO 1.1
+    ELSE
+        SET currencyMultiplier TO 1.0
+    END IF
+    
+    # Adjust for date range
+    # Calculate approximate number of years in test
+    SET startYear TO EXTRACT REGEX "(\d{4})" FROM "%startDate%"
+    SET endYear TO EXTRACT REGEX "(\d{4})" FROM "%endDate%"
+    SET yearDifference TO %endYear% - %startYear% + 1
+    SET dateRangeMultiplier TO MAX(1.0, %yearDifference% / 3)  # Normalize to 3 years as baseline
+    
+    # Calculate final estimate
+    SET estimatedDuration TO %baseDuration% * %currencyMultiplier% * %dateRangeMultiplier%
+    
+    # Apply system load factor
+    SET estimatedDuration TO %estimatedDuration% * %currentAdaptiveMultiplier%
+    
+    # Round to nearest 10 seconds
+    SET estimatedDuration TO ROUND(%estimatedDuration% / 10) * 10
+    
+    RETURN %estimatedDuration%
+END FUNCTION
+
+# Define timeframes - updated to include all 21 MT5 timeframes
+CREATE LIST timeframes
+# Minute timeframes
+ADD ITEM "M1" TO LIST timeframes
+ADD ITEM "M2" TO LIST timeframes
+ADD ITEM "M3" TO LIST timeframes
+ADD ITEM "M4" TO LIST timeframes
+ADD ITEM "M5" TO LIST timeframes
+ADD ITEM "M6" TO LIST timeframes
+ADD ITEM "M10" TO LIST timeframes
+ADD ITEM "M12" TO LIST timeframes
+ADD ITEM "M15" TO LIST timeframes
+ADD ITEM "M20" TO LIST timeframes
+ADD ITEM "M30" TO LIST timeframes
+# Hour timeframes
+ADD ITEM "H1" TO LIST timeframes
+ADD ITEM "H2" TO LIST timeframes
+ADD ITEM "H3" TO LIST timeframes
+ADD ITEM "H4" TO LIST timeframes
+ADD ITEM "H6" TO LIST timeframes
+ADD ITEM "H8" TO LIST timeframes
+ADD ITEM "H12" TO LIST timeframes
+# Day and above timeframes
+ADD ITEM "D1" TO LIST timeframes
+ADD ITEM "W1" TO LIST timeframes
+ADD ITEM "MN1" TO LIST timeframes
+
+# Define currency pairs - full set for comprehensive testing
+CREATE LIST currencies
+# Majors
+ADD ITEM "EURUSD" TO LIST currencies
+ADD ITEM "GBPUSD" TO LIST currencies
+ADD ITEM "USDJPY" TO LIST currencies
+ADD ITEM "USDCHF" TO LIST currencies
+ADD ITEM "AUDUSD" TO LIST currencies
+ADD ITEM "USDCAD" TO LIST currencies
+ADD ITEM "NZDUSD" TO LIST currencies
+# Cross pairs
+ADD ITEM "EURGBP" TO LIST currencies
+ADD ITEM "EURJPY" TO LIST currencies
+ADD ITEM "GBPJPY" TO LIST currencies
+ADD ITEM "AUDJPY" TO LIST currencies
+ADD ITEM "CADJPY" TO LIST currencies
+ADD ITEM "CHFJPY" TO LIST currencies
+# Exotics
+ADD ITEM "EURTRY" TO LIST currencies
+ADD ITEM "USDZAR" TO LIST currencies
+ADD ITEM "USDMXN" TO LIST currencies
+ADD ITEM "USDSEK" TO LIST currencies
+ADD ITEM "USDNOK" TO LIST currencies
+
+# Get list of all EAs in the folder
+CREATE LIST eaList
+TRY
+    # Get all EA files in the directory
+    GET FILES IN FOLDER "%eaPath%" WITH PATTERN "*.ex5" RECURSIVE No STORE RESULT IN eaList
+    
+    # If no EAs found, add a default one to prevent errors
+    IF COUNT OF LIST eaList = 0
+        ADD ITEM "Moving Average" TO LIST eaList
+        APPEND TEXT "No EA files found in %eaPath%, using default 'Moving Average'\r\n" TO FILE "%logFilePath%"
+    ELSE
+        APPEND TEXT "Found %COUNT OF LIST eaList% EA files in %eaPath%\r\n" TO FILE "%logFilePath%"
+        
+        # Log all found EAs
+        FOR EACH eaFile IN %eaList%
+            # Extract just the EA name without path and extension
+            SET eaName TO EXTRACT FILENAME FROM PATH "%eaFile%"
+            SET eaName TO REPLACE ".ex5" WITH "" IN "%eaName%"
+            APPEND TEXT "Found EA: %eaName%\r\n" TO FILE "%logFilePath%"
+        END FOR
+    END IF
+CATCH
+    APPEND TEXT "Error getting EA list: %ERROR MESSAGE%. Using default EA.\r\n" TO FILE "%logFilePath%"
+    # Add default EA to prevent errors
+    ADD ITEM "Moving Average" TO LIST eaList
+END TRY
+
+# Load configuration if available
+CALL LoadConfiguration
+
+# Check for checkpoint file to resume from previous run
+IF FILE EXISTS "%checkpointFile%"
+    TRY
+        READ FILE "%checkpointFile%" STORE RESULT IN checkpointData
+        APPEND TEXT "Found checkpoint file. Attempting to resume from last position...\r\n" TO FILE "%logFilePath%"
+        
+        # Extract values from checkpoint data using regex
+        SET eaIndex TO EXTRACT REGEX "\"eaIndex\":\s*(\d+)" FROM "%checkpointData%"
+        SET currencyIndex TO EXTRACT REGEX "\"currencyIndex\":\s*(\d+)" FROM "%checkpointData%"
+        SET timeframeIndex TO EXTRACT REGEX "\"timeframeIndex\":\s*(\d+)" FROM "%checkpointData%"
+        SET checkpointEaName TO EXTRACT REGEX "\"eaName\":\s*\"([^\"]+)\"" FROM "%checkpointData%"
+        SET checkpointCurrency TO EXTRACT REGEX "\"currency\":\s*\"([^\"]+)\"" FROM "%checkpointData%"
+        SET checkpointTimeframe TO EXTRACT REGEX "\"timeframe\":\s*\"([^\"]+)\"" FROM "%checkpointData%"
+        SET reportCounter TO EXTRACT REGEX "\"reportCounter\":\s*(\d+)" FROM "%checkpointData%"
+        
+        SET resumeFromCheckpoint TO true
+        APPEND TEXT "Resuming from: EA=%checkpointEaName% (%eaIndex%), Currency=%checkpointCurrency% (%currencyIndex%), Timeframe=%checkpointTimeframe% (%timeframeIndex%)\r\n" TO FILE "%logFilePath%"
+    CATCH
+        APPEND TEXT "Failed to parse checkpoint file: %ERROR MESSAGE%. Starting from beginning.\r\n" TO FILE "%logFilePath%"
+        SET resumeFromCheckpoint TO false
+    END TRY
+END IF
+
+# Initial system resource check
+CALL DetailedSystemCheck
+
+# Launch MT5 with error handling and retry mechanism
+SET retryCount TO 0
+WHILE %retryCount% < %maxRetries%
+    TRY
+        APPEND TEXT "Launching MetaTrader 5 (attempt %retryCount% + 1)...\r\n" TO FILE "%logFilePath%"
+        RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+        
+        # Wait for MT5 to fully load with verification
+        CALL AdaptiveWait WITH PARAMETERS %initialLoadTime%
+        
+        # Check if MT5 is running
+        IF WINDOW "MetaTrader 5" NOT EXISTS
+            THROW "MetaTrader 5 did not start properly"
+        END IF
+        
+        APPEND TEXT "MetaTrader 5 launched successfully\r\n" TO FILE "%logFilePath%"
+        BREAK
+    CATCH
+        SET retryCount TO %retryCount% + 1
+        APPEND TEXT "Error launching MetaTrader 5 (attempt %retryCount%): %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+        
+        # Capture error state
+        CALL CaptureErrorState WITH PARAMETERS "MT5Launch"
+        
+        IF %retryCount% >= %maxRetries%
+            IF %skipOnError%
+                APPEND TEXT "Maximum retries reached. Continuing with script...\r\n" TO FILE "%logFilePath%"
+                BREAK
+            ELSE
+                DISPLAY MESSAGE "Failed to launch MetaTrader 5 after %maxRetries% attempts"
+                EXIT FLOW
+            END IF
+        ELSE
+            # Wait before retrying
+            CALL AdaptiveWait WITH PARAMETERS 10
+        END IF
+    END TRY
+END WHILE
+
+# Loop through each EA
+FOR EACH eaFile IN %eaList% WITH INDEX eaIndex
+    # Skip to checkpoint position if resuming
+    IF %resumeFromCheckpoint% AND %eaIndex% < %eaIndex%
+        CONTINUE
+    END IF
+    
+    # Extract just the EA name without path and extension
+    SET eaName TO EXTRACT FILENAME FROM PATH "%eaFile%"
+    SET eaName TO REPLACE ".ex5" WITH "" IN "%eaName%"
+    
+    APPEND TEXT "Starting tests for EA: %eaName%\r\n" TO FILE "%logFilePath%"
+    
+    # Loop through each currency pair
+    FOR EACH currency IN %currencies% WITH INDEX currencyIndex
+        # Skip to checkpoint position if resuming
+        IF %resumeFromCheckpoint% AND %eaIndex% = %eaIndex% AND %currencyIndex% < %currencyIndex%
+            CONTINUE
+        END IF
+        
+        TRY
+            APPEND TEXT "Starting tests for EA: %eaName% on %currency%\r\n" TO FILE "%logFilePath%"
+            
+            # Check system resources before starting a new test
+            CALL DetailedSystemCheck
+            
+            # Open Strategy Tester using hotkey with retry
+            SET retryCount TO 0
+            WHILE %retryCount% < %maxRetries%
+                TRY
+                    # Primary method: Alt+T
+                    SEND KEYS Alt+t WINDOW "MetaTrader 5"
+                    CALL AdaptiveWait WITH PARAMETERS 3
+                    
+                    # Check if Strategy Tester opened
+                    IF WINDOW "Strategy Tester" NOT EXISTS AND WINDOW "Tester" NOT EXISTS
+                        # Secondary method: Ctrl+R
+                        SEND KEYS Ctrl+r WINDOW "MetaTrader 5"
+                        CALL AdaptiveWait WITH PARAMETERS 3
+                        
+                        # Tertiary method: Use View menu
+                        IF WINDOW "Strategy Tester" NOT EXISTS AND WINDOW "Tester" NOT EXISTS
+                            SEND KEYS Alt WINDOW "MetaTrader 5"
+                            CALL AdaptiveWait WITH PARAMETERS 1
+                            SEND KEYS v WINDOW "MetaTrader 5"
+                            CALL AdaptiveWait WITH PARAMETERS 1
+                            SEND KEYS t WINDOW "MetaTrader 5"
+                            CALL AdaptiveWait WITH PARAMETERS 3
+                            
+                            # Check again
+                            IF WINDOW "Strategy Tester" NOT EXISTS AND WINDOW "Tester" NOT EXISTS
+                                THROW "Strategy Tester window did not open"
+                            END IF
+                        END IF
+                    END IF
+                    
+                    BREAK
+                CATCH
+                    SET retryCount TO %retryCount% + 1
+                    APPEND TEXT "Failed to open Strategy Tester (attempt %retryCount%): %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                    
+                    # Capture error state
+                    CALL CaptureErrorState WITH PARAMETERS "OpenTester"
+                    
+                    IF %retryCount% >= %maxRetries%
+                        THROW "Failed to open Strategy Tester after %maxRetries% attempts"
+                    ELSE
+                        CALL AdaptiveWait WITH PARAMETERS 5
+                    END IF
+                END TRY
+            END WHILE
+            
+            # Configure Strategy Tester using keyboard navigation
+            # First, ensure focus is in the Strategy Tester window
+            SEND KEYS Alt+Tab WINDOW "Strategy Tester"
+            CALL AdaptiveWait WITH PARAMETERS 1
+            
+            # Select EA - for each EA in the list
+            TRY
+                # Navigate to Expert Advisor field (first field)
+                SEND KEYS Home WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Open dropdown
+                SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Type to find the EA
+                SEND KEYS "%eaName%" WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                SEND KEYS Enter WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+            CATCH
+                # Fallback to alternative keyboard method if first method fails
+                TRY
+                    # Focus on Strategy Tester window
+                    SEND KEYS Alt WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Navigate to Expert dropdown via menu
+                    SEND KEYS e WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Type EA name
+                    SEND KEYS "%eaName%" WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS Enter WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                CATCH
+                    APPEND TEXT "Error selecting EA %eaName%: %ERROR MESSAGE%. Skipping to next EA.\r\n" TO FILE "%logFilePath%"
+                    CALL CaptureErrorState WITH PARAMETERS "SelectEA"
+                    CONTINUE
+                END TRY
+            END TRY
+            
+            # Check if symbol exists and select Symbol
+            TRY
+                # Tab to Symbol field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Open dropdown
+                SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Type to find currency
+                SEND KEYS "%currency%" WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                
+                # Try to select the currency - if it doesn't exist, this will fail
+                SEND KEYS Enter WINDOW "Strategy Tester"
+                                CALL AdaptiveWait WITH PARAMETERS 1
+            CATCH
+                # Fallback to alternative keyboard method
+                TRY
+                    # Navigate to first field
+                    SEND KEYS Home WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Tab to Symbol field (second field)
+                    SEND KEYS Tab WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Open dropdown
+                    SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Type to find currency
+                    SEND KEYS "%currency%" WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS Enter WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                CATCH
+                    APPEND TEXT "Symbol %currency% not available with broker for EA %eaName%, skipping...\r\n" TO FILE "%logFilePath%"
+                                        # Close Strategy Tester window to prepare for next currency
+                    SEND KEYS Alt+F4 WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 2
+                    
+                    # Reset consecutive failures counter since we're skipping by design
+                    SET consecutiveFailures TO 0
+                    
+                    CONTINUE
+                END TRY
+            END TRY
+            
+            # Select Model - only once per currency
+            TRY
+                # Tab to Model field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Open dropdown
+                SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Select "Every tick"
+                SEND KEYS "Every tick" WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                SEND KEYS Enter WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+            CATCH
+                # Fallback to alternative keyboard method
+                TRY
+                    # Focus on Strategy Tester window and navigate to first field
+                    SEND KEYS Home WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Tab to Model field (third field)
+                    SEND KEYS Tab Tab Tab WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Open dropdown and select option
+                    SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS "Every tick" WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS Enter WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                CATCH
+                    APPEND TEXT "Error selecting model for EA %eaName%: %ERROR MESSAGE%. Using default model.\r\n" TO FILE "%logFilePath%"
+                    # Continue anyway with default model
+                END TRY
+            END TRY
+            
+            # Set Date Range - only once per currency
+            TRY
+                # Tab to "Use date" checkbox (skip timeframe for now)
+                SEND KEYS Tab Tab WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Check the box if not already checked
+                SEND KEYS Space WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                
+                # Tab to From date field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Select all text and replace
+                SEND KEYS Ctrl+a WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                SEND KEYS "%startDate%" WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                
+                # Tab to To date field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                # Select all text and replace
+                SEND KEYS Ctrl+a WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+                SEND KEYS "%endDate%" WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 1
+            CATCH
+                # Fallback to alternative keyboard method
+                TRY
+                    # Focus on Strategy Tester window and navigate to first field
+                    SEND KEYS Home WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Tab to "Use date" checkbox (skip timeframe field)
+                    SEND KEYS Tab Tab Tab Tab Tab WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Check the box
+                    SEND KEYS Space WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Tab to From date field
+                    SEND KEYS Tab WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Select all and enter start date
+                    SEND KEYS Ctrl+a WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS "%startDate%" WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Tab to To date field
+                    SEND KEYS Tab WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    # Select all and enter end date
+                    SEND KEYS Ctrl+a WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS "%endDate%" WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                CATCH
+                    APPEND TEXT "Error setting date range for EA %eaName%: %ERROR MESSAGE%. Using default date range.\r\n" TO FILE "%logFilePath%"
+                    # Continue anyway with default date range
+                END TRY
+            END TRY
+            
+            # Now loop through timeframes - only changing the timeframe setting
+            FOR EACH timeframe IN %timeframes% WITH INDEX timeframeIndex
+                # Skip to checkpoint position if resuming
+                IF %resumeFromCheckpoint% AND %eaIndex% = %eaIndex% AND %currencyIndex% = %currencyIndex% AND %timeframeIndex% < %timeframeIndex%
+                    CONTINUE
+                ELSIF %resumeFromCheckpoint% AND %eaIndex% = %eaIndex% AND %currencyIndex% = %currencyIndex% AND %timeframeIndex% = %timeframeIndex%
+                    # We've reached the exact checkpoint position, disable resuming for subsequent iterations
+                    SET resumeFromCheckpoint TO false
+                END IF
+                
+                TRY
+                    APPEND TEXT "Setting timeframe to %timeframe% for EA %eaName% on %currency%\r\n" TO FILE "%logFilePath%"
+                    
+                    # Check system resources before starting a new timeframe test
+                    CALL DetailedSystemCheck
+                    
+                    # Estimate test duration for this combination
+                    CALL EstimateTestDuration WITH PARAMETERS "%currency%" "%timeframe%" STORE RESULT IN estimatedDuration
+                    APPEND TEXT "Estimated test duration: %estimatedDuration% seconds\r\n" TO FILE "%logFilePath%"
+                    
+                    # Navigate back to the timeframe field
+                    # First, ensure focus is in the Strategy Tester window
+                    SEND KEYS Alt+Tab WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # Navigate to Expert Advisor field (first field)
+                    SEND KEYS Home WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # Tab to Timeframe field (4th field)
+                    SEND KEYS Tab Tab Tab WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # Open dropdown
+                    SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # Select timeframe
+                    SEND KEYS "%timeframe%" WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS Enter WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # Save checkpoint before starting test
+                    CALL SaveCheckpoint
+                    
+                    # Start Test with keyboard shortcut
+                    SEND KEYS F9 WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 5
+                    
+                    APPEND TEXT "Test started for EA %eaName% on %currency% with %timeframe%\r\n" TO FILE "%logFilePath%"
+                    
+                    # Wait for test to complete with progress monitoring instead of strict timeouts
+                    SET testWaitTime TO 0
+                    SET testCompleted TO false
+                    SET statusCheckInterval TO 10  # Check every 10 seconds
+                    SET lastProgressValue TO "0"
+                    SET noProgressCounter TO 0
+                    SET maxNoProgressIntervals TO 30  # Allow 5 minutes (30 × 10s) without progress before considering frozen
+                    SET mtFrozenCounter TO 0
+                    SET previousLoggedProgress TO "0"
+
+                    APPEND TEXT "Monitoring backtest progress - will wait until completion regardless of duration...\r\n" TO FILE "%logFilePath%"
+
+                    WHILE NOT %testCompleted%
+                        # Method 1: Check if Start button is enabled again (test completed)
+                        TRY
+                            IF ELEMENT "Start button (enabled)" EXISTS
+                                APPEND TEXT "Test completion detected: Start button is enabled again\r\n" TO FILE "%logFilePath%"
+                                SET testCompleted TO true
+                                BREAK
+                            END IF
+                        CATCH
+                            # Continue to other detection methods
+                        END TRY
+                        
+                        # Method 2: Check for report tab appearance
+                        TRY
+                            IF ELEMENT "Report tab" EXISTS
+                                APPEND TEXT "Test completion detected: Report tab appeared\r\n" TO FILE "%logFilePath%"
+                                SET testCompleted TO true
+                                BREAK
+                            END IF
+                        CATCH
+                            # Continue to other detection methods
+                        END TRY
+                        
+                        # Method 3: Check status bar text for completion indicators
+                        TRY
+                            GET TEXT FROM ELEMENT "Status bar" STORE RESULT IN statusText
+                            IF CONTAINS "%statusText%" "complete" OR CONTAINS "%statusText%" "100%" OR CONTAINS "%statusText%" "finished"
+                                APPEND TEXT "Test completion detected: Status bar indicates completion\r\n" TO FILE "%logFilePath%"
+                                SET testCompleted TO true
+                                BREAK
+                            END IF
+                            
+                            # Check for progress changes to detect if test is still running
+                            # Extract progress percentage from status text if available
+                            IF CONTAINS "%statusText%" "%"
+                                # Extract just the percentage value
+                                SET currentProgress TO EXTRACT REGEX "(\d+)%" FROM "%statusText%"
+                                
+                                IF "%currentProgress%" != "%lastProgressValue%"
+                                    # Progress has changed, reset the no-progress counter
+                                    SET lastProgressValue TO "%currentProgress%"
+                                    SET noProgressCounter TO 0
+                                    
+                                    # Log progress every 10% or every 5 minutes
+                                    IF %testWaitTime% % 300 = 0 OR (%lastProgressValue% % 10 = 0 AND "%lastProgressValue%" != "%previousLoggedProgress%")
+                                        APPEND TEXT "Backtest in progress: %lastProgressValue%% complete after %testWaitTime% seconds\r\n" TO FILE "%logFilePath%"
+                                        SET previousLoggedProgress TO "%lastProgressValue%"
+                                    END IF
+                                ELSE
+                                    # No change in progress, increment counter
+                                    SET noProgressCounter TO %noProgressCounter% + 1
+                                END IF
+                            END IF
+                        CATCH
+                            # Continue to other detection methods
+                        END TRY
+                        
+                        # Check system resources periodically during the test
+                        IF %testWaitTime% % 60 = 0
+                            CALL DetailedSystemCheck
+                        END IF
+                        
+                        # Check if MT5 is responsive by testing window interaction
+                        IF %testWaitTime% % 60 = 0 AND %testWaitTime% > 0
+                            TRY
+                                # Send a harmless key to check if window responds
+                                SEND KEYS Home WINDOW "Strategy Tester"
+                                CALL AdaptiveWait WITH PARAMETERS 1
+                                
+                                # Reset frozen counter if MT5 responds
+                                SET mtFrozenCounter TO 0
+                            CATCH
+                                # MT5 didn't respond to input
+                                SET mtFrozenCounter TO %mtFrozenCounter% + 1
+                                APPEND TEXT "Warning: MT5 may be unresponsive (attempt %mtFrozenCounter%)\r\n" TO FILE "%logFilePath%"
+                                
+                                # Check system resources before declaring frozen
+                                CALL DetailedSystemCheck
+                                
+                                # Only consider MT5 frozen after multiple failed response checks
+                                # Be more tolerant if system is under load
+                                IF %mtFrozenCounter% >= 3 AND %availableMemory% > %lowMemoryThreshold%
+                                    APPEND TEXT "MT5 appears to be frozen. Attempting recovery...\r\n" TO FILE "%logFilePath%"
+                                    CALL CaptureErrorState WITH PARAMETERS "MT5Frozen"
+                                    SET testCompleted TO true
+                                    SET consecutiveFailures TO %consecutiveFailures% + 1
+                                    BREAK
+                                ELSIF %mtFrozenCounter% >= 5
+                                    # Even with low memory, don't wait forever
+                                    APPEND TEXT "MT5 appears to be frozen despite system load. Attempting recovery...\r\n" TO FILE "%logFilePath%"
+                                    CALL CaptureErrorState WITH PARAMETERS "MT5Frozen"
+                                    SET testCompleted TO true
+                                    SET consecutiveFailures TO %consecutiveFailures% + 1
+                                    BREAK
+                                END IF
+                            END TRY
+                        END IF
+                        
+                        # Check for lack of progress - with improved handling for system load
+                        IF %noProgressCounter% >= %maxNoProgressIntervals%
+                            # Call system resource check
+                            CALL DetailedSystemCheck
+                            
+                            APPEND TEXT "Warning: No progress detected for %noProgressCounter% intervals (%noProgressCounter% * %statusCheckInterval% seconds)\r\n" TO FILE "%logFilePath%"
+                            
+                            # Check if MT5 is still responsive despite no progress
+                            TRY
+                                SEND KEYS Home WINDOW "Strategy Tester"
+                                CALL AdaptiveWait WITH PARAMETERS 2  # Use adaptive wait
+                                
+                                # If responsive, maybe it's just a very slow test or system is under load
+                                IF %noProgressCounter% < %maxNoProgressIntervals% * 3  # More tolerant threshold
+                                    APPEND TEXT "MT5 is responsive but showing no progress. System multiplier: %currentAdaptiveMultiplier%. Continuing to wait...\r\n" TO FILE "%logFilePath%"
+                                                                        SET noProgressCounter TO %maxNoProgressIntervals%  # Reset to threshold
+                                    
+                                    # If system is under heavy load, increase wait times
+                                    IF %currentAdaptiveMultiplier% < %maxAdaptiveWaitMultiplier%
+                                        SET currentAdaptiveMultiplier TO MIN(%maxAdaptiveWaitMultiplier%, %currentAdaptiveMultiplier% * 1.5)
+                                        APPEND TEXT "Increasing wait multiplier to %currentAdaptiveMultiplier% due to slow progress\r\n" TO FILE "%logFilePath%"
+                                    END IF
+                                ELSE
+                                    # Only consider stalled after much longer period with no progress
+                                    APPEND TEXT "Test appears stalled with no progress for extended period. Considering as frozen.\r\n" TO FILE "%logFilePath%"
+                                    CALL CaptureErrorState WITH PARAMETERS "TestStalled"
+                                    SET testCompleted TO true
+                                    SET consecutiveFailures TO %consecutiveFailures% + 1
+                                END IF
+                            CATCH
+                                # Before declaring frozen, check system resources
+                                CALL DetailedSystemCheck
+                                
+                                # If memory is very low, wait longer before declaring frozen
+                                IF %availableMemory% < %lowMemoryThreshold% / 2
+                                    APPEND TEXT "System under heavy load (%availableMemory% MB memory). Waiting longer before declaring test frozen.\r\n" TO FILE "%logFilePath%"
+                                    SET noProgressCounter TO %maxNoProgressIntervals%  # Reset counter
+                                    CALL AdaptiveWait WITH PARAMETERS 30  # Wait longer
+                                ELSE
+                                    # If not responsive AND no progress, likely frozen
+                                    APPEND TEXT "MT5 is unresponsive and showing no progress. Considering as frozen.\r\n" TO FILE "%logFilePath%"
+                                    CALL CaptureErrorState WITH PARAMETERS "MT5Unresponsive"
+                                    SET testCompleted TO true
+                                    SET consecutiveFailures TO %consecutiveFailures% + 1
+                                END IF
+                            END TRY
+                        END IF
+                        
+                        # Periodic heartbeat log to show script is still running
+                        IF %testWaitTime% % 600 = 0 AND %testWaitTime% > 0
+                            APPEND TEXT "Backtest still running after %testWaitTime% seconds. Continuing to wait for completion...\r\n" TO FILE "%logFilePath%"
+                        END IF
+                        
+                        CALL AdaptiveWait WITH PARAMETERS %statusCheckInterval%
+                        SET testWaitTime TO %testWaitTime% + %statusCheckInterval%
+                    END WHILE
+
+                    # If we detected the test is frozen, try to recover
+                    IF %testCompleted% AND %consecutiveFailures% > 0
+                        # Try to cancel any hanging test
+                        TRY
+                            SEND KEYS Escape WINDOW "Strategy Tester"
+                            CALL AdaptiveWait WITH PARAMETERS 2
+                            SEND KEYS Enter  # In case a confirmation dialog appears
+                            CALL AdaptiveWait WITH PARAMETERS 1
+                        CATCH
+                            # Ignore errors when canceling
+                        END TRY
+                        
+                        # Skip to next timeframe if we had to force completion
+                        IF %mtFrozenCounter% >= 3 OR %noProgressCounter% >= %maxNoProgressIntervals% * 2
+                            APPEND TEXT "Skipping to next timeframe due to detected freeze\r\n" TO FILE "%logFilePath%"
+                            CONTINUE
+                        END IF
+                    END IF
+                    
+                    # Save Report with keyboard shortcuts
+                    TRY
+                        # Use keyboard shortcut to save report
+                        SEND KEYS Alt+f WINDOW "Strategy Tester"  # Open File menu
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        SEND KEYS s WINDOW "Strategy Tester"      # Select Save As
+                        CALL AdaptiveWait WITH PARAMETERS 2
+                        
+                        # Set file name and location
+                        SET reportFileName TO "%eaName%_%currency%_%timeframe%_(%reportCounter%)"
+                        SEND KEYS "%reportPath%\%reportFileName%" WINDOW "Save As"
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        SEND KEYS Enter WINDOW "Save As"
+                        CALL AdaptiveWait WITH PARAMETERS 3
+                        
+                        APPEND TEXT "Report saved: %reportFileName%\r\n" TO FILE "%logFilePath%"
+                        
+                        # Increment counter
+                        SET reportCounter TO %reportCounter% + 1
+                        
+                        # Reset consecutive failures counter on success
+                        SET consecutiveFailures TO 0
+                        
+                        # Close report tab with keyboard shortcut
+                        SEND KEYS Ctrl+F4 WINDOW "Strategy Tester"
+                        CALL AdaptiveWait WITH PARAMETERS 2
+                    CATCH
+                        # Fallback to alternative keyboard method
+                        TRY
+                            # Use Ctrl+S for Save As
+                            SEND KEYS Ctrl+s WINDOW "Strategy Tester"
+                            CALL AdaptiveWait WITH PARAMETERS 2
+                            
+                            # Set file name and location
+                            SET reportFileName TO "%eaName%_%currency%_%timeframe%_(%reportCounter%)"
+                            SEND KEYS "%reportPath%\%reportFileName%" WINDOW "Save As"
+                            CALL AdaptiveWait WITH PARAMETERS 1
+                            SEND KEYS Enter WINDOW "Save As"
+                            CALL AdaptiveWait WITH PARAMETERS 3
+                            
+                            APPEND TEXT "Report saved using fallback method\r\n" TO FILE "%logFilePath%"
+                            
+                            # Increment counter
+                            SET reportCounter TO %reportCounter% + 1
+                            
+                            # Reset consecutive failures counter on success
+                            SET consecutiveFailures TO 0
+                            
+                            # Close report tab
+                            SEND KEYS Ctrl+F4 WINDOW "Strategy Tester"
+                            CALL AdaptiveWait WITH PARAMETERS 2
+                        CATCH
+                            APPEND TEXT "Warning: Could not save report for EA %eaName% on %currency% with %timeframe%: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                            CALL CaptureErrorState WITH PARAMETERS "SaveReport"
+                            SET consecutiveFailures TO %consecutiveFailures% + 1
+                        END TRY
+                    END TRY
+                    
+                CATCH
+                    APPEND TEXT "Error during test for EA %eaName% on %currency% with %timeframe%: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                    CALL CaptureErrorState WITH PARAMETERS "TestExecution"
+                    SET consecutiveFailures TO %consecutiveFailures% + 1
+                    
+                    # Check if we need to restart MT5 due to too many consecutive failures
+                    IF %consecutiveFailures% >= %maxConsecutiveFailures% AND %autoRestartOnFailure%
+                        # Check system resources before deciding to restart
+                        CALL DetailedSystemCheck
+                        
+                        # If system is under heavy load, wait before restarting
+                        IF %availableMemory% < %lowMemoryThreshold%
+                            APPEND TEXT "System under heavy load (%availableMemory% MB). Waiting before restart...\r\n" TO FILE "%logFilePath%"
+                            CALL AdaptiveWait WITH PARAMETERS 60  # Wait longer
+                            
+                            # Check if MT5 has recovered on its own
+                            TRY
+                                SEND KEYS Alt+Tab WINDOW "MetaTrader 5"
+                                CALL AdaptiveWait WITH PARAMETERS 2
+                                
+                                IF WINDOW "MetaTrader 5" EXISTS
+                                    APPEND TEXT "MT5 has recovered. Continuing without restart.\r\n" TO FILE "%logFilePath%"
+                                    SET consecutiveFailures TO 0
+                                    CONTINUE
+                                END IF
+                            CATCH
+                                # Continue with restart
+                            END TRY
+                        END IF
+                        
+                        APPEND TEXT "Too many consecutive failures (%consecutiveFailures%). Restarting MT5...\r\n" TO FILE "%logFilePath%"
+                        
+                        # Close MT5 gracefully first
+                        TRY
+                            SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+                            CALL AdaptiveWait WITH PARAMETERS 10
+                            
+                            # Force close if needed
+                            IF WINDOW "MetaTrader 5" EXISTS
+                                KILL PROCESS "terminal64.exe"
+                                CALL AdaptiveWait WITH PARAMETERS 10
+                            END IF
+                        CATCH
+                            # Ignore errors when closing
+                        END TRY
+                        
+                        # Wait longer before restarting to allow system to free resources
+                        CALL AdaptiveWait WITH PARAMETERS 30
+                        
+                        # Restart MT5
+                        TRY
+                            RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                            CALL AdaptiveWait WITH PARAMETERS %initialLoadTime% * 1.5  # Wait longer for initial load
+                            SET consecutiveFailures TO 0
+                            
+                            # Skip to next currency pair after restart
+                            BREAK
+                        CATCH
+                            APPEND TEXT "Failed to restart MT5: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                        END TRY
+                    END IF
+                    
+                    # Try to recover and continue with next test
+                    TRY
+                        # Close any open dialogs with Escape key
+                        SEND KEYS Escape
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        SEND KEYS Escape
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        
+                        # Try Alt+F4 to close any open windows
+                        SEND KEYS Alt+F4
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        
+                        # If a confirmation dialog appears, press Enter to confirm
+                        SEND KEYS Enter
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                    END TRY
+                END TRY
+                
+                # Add a pause between tests to allow system to stabilize
+                CALL AdaptiveWait WITH PARAMETERS 5
+                
+                # Save checkpoint after each test
+                CALL SaveCheckpoint
+            END FOR
+            
+            # Close Strategy Tester window after all timeframes for this currency
+            TRY
+                SEND KEYS Alt+F4 WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 2
+            CATCH
+                # If we can't close it normally, try to force close
+                TRY
+                    # Try alternative keyboard shortcut
+                    SEND KEYS Ctrl+w WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 2
+                    
+                    # If still open, try to kill process
+                    IF WINDOW "Strategy Tester" EXISTS
+                        KILL PROCESS "terminal64.exe"
+                        CALL AdaptiveWait WITH PARAMETERS 5
+                        RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                        CALL AdaptiveWait WITH PARAMETERS %initialLoadTime%
+                    END IF
+                CATCH
+                    APPEND TEXT "Failed to restart MT5 after force close: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                END TRY
+            END TRY
+            
+            APPEND TEXT "Completed all timeframes for EA %eaName% on %currency%\r\n" TO FILE "%logFilePath%"
+        CATCH
+            APPEND TEXT "Error processing currency %currency% with EA %eaName%: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+            CALL CaptureErrorState WITH PARAMETERS "CurrencyProcessing"
+            SET consecutiveFailures TO %consecutiveFailures% + 1
+            
+            # Check if we need to restart MT5 due to too many consecutive failures
+            IF %consecutiveFailures% >= %maxConsecutiveFailures% AND %autoRestartOnFailure%
+                # Check system resources before deciding to restart
+                CALL DetailedSystemCheck
+                
+                # If system is under heavy load, wait before restarting
+                IF %availableMemory% < %lowMemoryThreshold%
+                    APPEND TEXT "System under heavy load (%availableMemory% MB). Waiting before restart...\r\n" TO FILE "%logFilePath%"
+                    CALL AdaptiveWait WITH PARAMETERS 60  # Wait longer
+                    
+                    # Check if MT5 has recovered on its own
+                    TRY
+                        SEND KEYS Alt+Tab WINDOW "MetaTrader 5"
+                        CALL AdaptiveWait WITH PARAMETERS 2
+                        
+                        IF WINDOW "MetaTrader 5" EXISTS
+                            APPEND TEXT "MT5 has recovered. Continuing without restart.\r\n" TO FILE "%logFilePath%"
+                            SET consecutiveFailures TO 0
+                            CONTINUE
+                        END IF
+                    CATCH
+                        # Continue with restart
+                    END TRY
+                END IF
+                
+                APPEND TEXT "Too many consecutive failures (%consecutiveFailures%). Restarting MT5...\r\n" TO FILE "%logFilePath%"
+                
+                # Close MT5
+                TRY
+                    SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+                    CALL AdaptiveWait WITH PARAMETERS 5
+                    
+                    # Force close if needed
+                    IF WINDOW "MetaTrader 5" EXISTS
+                        KILL PROCESS "terminal64.exe"
+                        CALL AdaptiveWait WITH PARAMETERS 5
+                    END IF
+                CATCH
+                    # Ignore errors when closing
+                END TRY
+                
+                # Wait longer before restarting to allow system to free resources
+                CALL AdaptiveWait WITH PARAMETERS 30
+                
+                # Restart MT5
+                TRY
+                    RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                    CALL AdaptiveWait WITH PARAMETERS %initialLoadTime% * 1.5
+                    SET consecutiveFailures TO 0
+                CATCH
+                    APPEND TEXT "Failed to restart MT5: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                END TRY
+            ELSE
+                # Try to recover and continue with next currency
+                TRY
+                    # Close any open dialogs with Escape key
+                    SEND KEYS Escape
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    SEND KEYS Escape
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # Try Alt+F4 to close any open windows
+                    SEND KEYS Alt+F4
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # If a confirmation dialog appears, press Enter to confirm
+                    SEND KEYS Enter
+                    CALL AdaptiveWait WITH PARAMETERS 1
+                    
+                    # Try to close Strategy Tester if open
+                    IF WINDOW "Strategy Tester" EXISTS OR WINDOW "Tester" EXISTS
+                        SEND KEYS Alt+F4 WINDOW "Strategy Tester"
+                        CALL AdaptiveWait WITH PARAMETERS 2
+                    END IF
+                CATCH
+                    # If recovery fails, try to restart MT5
+                    APPEND TEXT "Recovery failed, attempting to restart MT5\r\n" TO FILE "%logFilePath%"
+                    SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+                    CALL AdaptiveWait WITH PARAMETERS 5
+                    RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                                        CALL AdaptiveWait WITH PARAMETERS %initialLoadTime%
+                END TRY
+            END IF
+        END TRY
+    END FOR
+    
+    APPEND TEXT "Completed all currencies for EA %eaName%\r\n" TO FILE "%logFilePath%"
+END FOR
+
+# Close MT5 when done using keyboard shortcut
+TRY
+    APPEND TEXT "All tests completed. Closing MetaTrader 5\r\n" TO FILE "%logFilePath%"
+    SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+    CALL AdaptiveWait WITH PARAMETERS 5
+    
+    # Check if MT5 is still running and force close if needed
+    IF WINDOW "MetaTrader 5" EXISTS
+        # Try alternative keyboard shortcut
+        SEND KEYS Alt+F WINDOW "MetaTrader 5"
+        CALL AdaptiveWait WITH PARAMETERS 1
+        SEND KEYS x WINDOW "MetaTrader 5"
+        CALL AdaptiveWait WITH PARAMETERS 1
+        SEND KEYS x WINDOW "MetaTrader 5"
+        CALL AdaptiveWait WITH PARAMETERS 5
+        
+        # If still running, kill process
+        IF WINDOW "MetaTrader 5" EXISTS
+            KILL PROCESS "terminal64.exe"
+            APPEND TEXT "Forced close of MetaTrader 5\r\n" TO FILE "%logFilePath%"
+        END IF
+    END IF
+CATCH
+    APPEND TEXT "Error closing MetaTrader 5: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+END TRY
+
+# Delete checkpoint file after successful completion
+TRY
+    IF FILE EXISTS "%checkpointFile%"
+        DELETE FILE "%checkpointFile%"
+        APPEND TEXT "Checkpoint file deleted after successful completion\r\n" TO FILE "%logFilePath%"
+    END IF
+CATCH
+    APPEND TEXT "Error deleting checkpoint file: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+END TRY
+
+# Generate summary report
+TRY
+    # Count total number of reports generated
+    GET FILES IN FOLDER "%reportPath%" WITH PATTERN "*.htm" RECURSIVE No STORE RESULT IN reportFiles
+    SET totalReports TO COUNT OF LIST reportFiles
+    
+    # Generate summary
+    SET summaryText TO "=== BACKTEST AUTOMATION SUMMARY ===\r\n"
+    SET summaryText TO "%summaryText%Completed at: %CURRENT DATE% %CURRENT TIME%\r\n"
+    SET summaryText TO "%summaryText%Total EAs tested: %COUNT OF LIST eaList%\r\n"
+    SET summaryText TO "%summaryText%Total currency pairs tested: %COUNT OF LIST currencies%\r\n"
+    SET summaryText TO "%summaryText%Total timeframes tested: %COUNT OF LIST timeframes%\r\n"
+    SET summaryText TO "%summaryText%Total reports generated: %totalReports%\r\n"
+    SET summaryText TO "%summaryText%Total theoretical combinations: %COUNT OF LIST eaList% × %COUNT OF LIST currencies% × %COUNT OF LIST timeframes% = %COUNT OF LIST eaList% * %COUNT OF LIST currencies% * %COUNT OF LIST timeframes%\r\n"
+    
+    # Write summary to log
+    APPEND TEXT "\r\n%summaryText%\r\n" TO FILE "%logFilePath%"
+    
+    # Also create a separate summary file
+    WRITE TEXT "%summaryText%" TO FILE "%reportPath%\backtest_summary.txt"
+CATCH
+    APPEND TEXT "Error generating summary report: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+END TRY
+
+# Final log entry
+APPEND TEXT "Script completed at %CURRENT DATE% %CURRENT TIME%\r\n" TO FILE "%logFilePath%"
+DISPLAY MESSAGE "Backtesting automation completed. See log file for details: %logFilePath%"
+
+# Offer to restart the script automatically for continuous operation
+TRY
+    # Ask user if they want to restart
+    DISPLAY DIALOG "Backtesting completed. Would you like to restart the automation?" 
+    WITH TITLE "Backtest Automation" 
+    WITH BUTTONS "Yes" "No" 
+    STORE RESULT IN dialogResult
+    
+    IF "%dialogResult%" = "Yes"
+        # Wait a short time before restarting
+        CALL AdaptiveWait WITH PARAMETERS 30
+        
+        # Get the path to the current flow
+        SET currentFlowPath TO FLOW PATH
+        
+        # Run the flow again
+        RUN FLOW "%currentFlowPath%"
+    ELSE
+        DISPLAY MESSAGE "Backtest automation ended. You can manually restart it later if needed."
+    END IF
+CATCH
+    APPEND TEXT "Error handling restart dialog: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+END TRY
+
+
+
