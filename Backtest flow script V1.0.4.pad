@@ -1,0 +1,603 @@
+# Initialize variables with enhanced error handling
+TRY
+    SET mt5Path TO "C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe"
+    SET eaPath TO "C:\Users\kigundu\AppData\Roaming\MetaQuotes\Terminal\53785E099C927DB68A545C249CDBCE06\MQL5\Experts\Custom EAs\Moving Average"
+    SET reportPath TO "D:\FOREX\FOREX DOCUMENTS\MT5 STRATEGY TESTER REPORTS\Reports"
+    SET startDate TO "2019.01.01"
+    SET endDate TO "2024.12.31"
+    SET reportCounter TO 1
+    SET maxWaitTimeForTest TO 180  # Maximum wait time for test completion (3 minutes)
+    SET initialLoadTime TO 15      # Initial load time for MT5
+    SET maxRetries TO 3            # Maximum number of retries for operations
+    SET skipOnError TO true        # Skip to next item on error instead of stopping
+    SET autoRestartOnFailure TO true  # Auto restart MT5 on consecutive failures
+    SET maxConsecutiveFailures TO 5   # Number of failures before restart
+    SET consecutiveFailures TO 0      # Counter for consecutive failures
+    
+    # Create log file for tracking progress and errors
+    SET logFilePath TO "D:\FOREX\FOREX DOCUMENTS\MT5 STRATEGY TESTER REPORTS\automation_log.txt"
+    
+    # Check if paths exist
+    IF FOLDER NOT EXISTS "%mt5Path%"
+        THROW "MetaTrader 5 path does not exist: %mt5Path%"
+    END IF
+    
+    IF FOLDER NOT EXISTS "%eaPath%"
+        THROW "EA path does not exist: %eaPath%"
+    END IF
+    
+    IF FOLDER NOT EXISTS "%reportPath%"
+        # Create reports folder if it doesn't exist
+        CREATE FOLDER "%reportPath%"
+    END IF
+    
+    # Log start of execution
+    APPEND TEXT "Started execution at %CURRENT DATE% %CURRENT TIME%\r\n" TO FILE "%logFilePath%"
+    APPEND TEXT "Using MT5 path: %mt5Path%\r\n" TO FILE "%logFilePath%"
+    APPEND TEXT "Using EA path: %eaPath%\r\n" TO FILE "%logFilePath%"
+CATCH
+    DISPLAY MESSAGE "Error during initialization: %ERROR MESSAGE%"
+    
+    # Log error and continue if possible
+    APPEND TEXT "Error during initialization: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+    
+    IF %skipOnError%
+        APPEND TEXT "Continuing despite initialization error...\r\n" TO FILE "%logFilePath%"
+    ELSE
+        EXIT FLOW
+    END IF
+END TRY
+
+# Define timeframes - full set for comprehensive testing
+CREATE LIST timeframes
+ADD ITEM "M1" TO LIST timeframes
+ADD ITEM "M2" TO LIST timeframes
+ADD ITEM "M3" TO LIST timeframes
+ADD ITEM "M5" TO LIST timeframes
+ADD ITEM "M15" TO LIST timeframes
+ADD ITEM "M30" TO LIST timeframes
+ADD ITEM "H1" TO LIST timeframes
+ADD ITEM "H4" TO LIST timeframes
+ADD ITEM "D1" TO LIST timeframes
+
+# Define currency pairs - full set for comprehensive testing
+CREATE LIST currencies
+# Majors
+ADD ITEM "EURUSD" TO LIST currencies
+ADD ITEM "GBPUSD" TO LIST currencies
+ADD ITEM "USDJPY" TO LIST currencies
+ADD ITEM "USDCHF" TO LIST currencies
+ADD ITEM "AUDUSD" TO LIST currencies
+ADD ITEM "USDCAD" TO LIST currencies
+ADD ITEM "NZDUSD" TO LIST currencies
+# Cross pairs
+ADD ITEM "EURGBP" TO LIST currencies
+ADD ITEM "EURJPY" TO LIST currencies
+ADD ITEM "GBPJPY" TO LIST currencies
+ADD ITEM "AUDJPY" TO LIST currencies
+ADD ITEM "CADJPY" TO LIST currencies
+ADD ITEM "CHFJPY" TO LIST currencies
+# Exotics
+ADD ITEM "EURTRY" TO LIST currencies
+ADD ITEM "USDZAR" TO LIST currencies
+ADD ITEM "USDMXN" TO LIST currencies
+ADD ITEM "USDSEK" TO LIST currencies
+ADD ITEM "USDNOK" TO LIST currencies
+
+# Get list of all EAs in the folder
+CREATE LIST eaList
+TRY
+    # Get all EA files in the directory
+    GET FILES IN FOLDER "%eaPath%" WITH PATTERN "*.ex5" RECURSIVE No STORE RESULT IN eaList
+    
+    # If no EAs found, add a default one to prevent errors
+    IF COUNT OF LIST eaList = 0
+        ADD ITEM "Moving Average" TO LIST eaList
+        APPEND TEXT "No EA files found in %eaPath%, using default 'Moving Average'\r\n" TO FILE "%logFilePath%"
+    ELSE
+        APPEND TEXT "Found %COUNT OF LIST eaList% EA files in %eaPath%\r\n" TO FILE "%logFilePath%"
+        
+        # Log all found EAs
+        FOR EACH eaFile IN %eaList%
+            # Extract just the EA name without path and extension
+            SET eaName TO EXTRACT FILENAME FROM PATH "%eaFile%"
+            SET eaName TO REPLACE ".ex5" WITH "" IN "%eaName%"
+            APPEND TEXT "Found EA: %eaName%\r\n" TO FILE "%logFilePath%"
+        END FOR
+    END IF
+CATCH
+    APPEND TEXT "Error getting EA list: %ERROR MESSAGE%. Using default EA.\r\n" TO FILE "%logFilePath%"
+    # Add default EA to prevent errors
+    ADD ITEM "Moving Average" TO LIST eaList
+END TRY
+
+# Launch MT5 with error handling and retry mechanism
+SET retryCount TO 0
+WHILE %retryCount% < %maxRetries%
+    TRY
+        APPEND TEXT "Launching MetaTrader 5 (attempt %retryCount% + 1)...\r\n" TO FILE "%logFilePath%"
+        RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+        
+        # Wait for MT5 to fully load with verification
+        WAIT %initialLoadTime%
+        
+        # Check if MT5 is running
+        IF WINDOW "MetaTrader 5" NOT EXISTS
+            THROW "MetaTrader 5 did not start properly"
+        END IF
+        
+        APPEND TEXT "MetaTrader 5 launched successfully\r\n" TO FILE "%logFilePath%"
+        BREAK
+    CATCH
+        SET retryCount TO %retryCount% + 1
+        APPEND TEXT "Error launching MetaTrader 5 (attempt %retryCount%): %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+        
+        IF %retryCount% >= %maxRetries%
+            IF %skipOnError%
+                APPEND TEXT "Maximum retries reached. Continuing with script...\r\n" TO FILE "%logFilePath%"
+                BREAK
+            ELSE
+                DISPLAY MESSAGE "Failed to launch MetaTrader 5 after %maxRetries% attempts"
+                EXIT FLOW
+            END IF
+        ELSE
+            # Wait before retrying
+            WAIT 10
+        END IF
+    END TRY
+END WHILE
+
+# Loop through each EA
+FOR EACH eaFile IN %eaList%
+    # Extract just the EA name without path and extension
+    SET eaName TO EXTRACT FILENAME FROM PATH "%eaFile%"
+    SET eaName TO REPLACE ".ex5" WITH "" IN "%eaName%"
+    
+    APPEND TEXT "Starting tests for EA: %eaName%\r\n" TO FILE "%logFilePath%"
+    
+    # Loop through each currency pair
+    FOR EACH currency IN %currencies%
+        TRY
+            APPEND TEXT "Starting tests for EA: %eaName% on %currency%\r\n" TO FILE "%logFilePath%"
+            
+            # Open Strategy Tester using hotkey with retry
+            SET retryCount TO 0
+            WHILE %retryCount% < %maxRetries%
+                TRY
+                    SEND KEYS Alt+t WINDOW "MetaTrader 5"
+                    WAIT 3
+                    
+                    # Check if Strategy Tester opened
+                    IF WINDOW "Strategy Tester" NOT EXISTS AND WINDOW "Tester" NOT EXISTS
+                        # Try alternative method
+                        SEND KEYS Ctrl+r WINDOW "MetaTrader 5"
+                        WAIT 3
+                        
+                        # Check again
+                        IF WINDOW "Strategy Tester" NOT EXISTS AND WINDOW "Tester" NOT EXISTS
+                            THROW "Strategy Tester window did not open"
+                        END IF
+                    END IF
+                    
+                    BREAK
+                CATCH
+                    SET retryCount TO %retryCount% + 1
+                    APPEND TEXT "Failed to open Strategy Tester (attempt %retryCount%): %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                    
+                    IF %retryCount% >= %maxRetries%
+                        THROW "Failed to open Strategy Tester after %maxRetries% attempts"
+                    ELSE
+                        WAIT 5
+                    END IF
+                END TRY
+            END WHILE
+            
+            # Configure Strategy Tester using keyboard navigation
+            # First, ensure focus is in the Strategy Tester window
+            CLICK WINDOW "Strategy Tester"
+            WAIT 1
+            
+            # Select EA - for each EA in the list
+            TRY
+                # Navigate to Expert Advisor field (first field)
+                SEND KEYS Home WINDOW "Strategy Tester"
+                WAIT 1
+                # Open dropdown
+                SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                WAIT 1
+                # Type to find the EA
+                SEND KEYS "%eaName%" WINDOW "Strategy Tester"
+                WAIT 1
+                SEND KEYS Enter WINDOW "Strategy Tester"
+                WAIT 1
+            CATCH
+                # Fallback to direct click if hotkeys fail
+                TRY
+                    CLICK "Expert Advisor" dropdown
+                    WAIT 1
+                    CLICK "%eaName%"
+                    WAIT 1
+                CATCH
+                    APPEND TEXT "Error selecting EA %eaName%: %ERROR MESSAGE%. Skipping to next EA.\r\n" TO FILE "%logFilePath%"
+                    CONTINUE
+                END TRY
+            END TRY
+            
+            # Check if symbol exists and select Symbol
+            TRY
+                # Tab to Symbol field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                WAIT 1
+                # Open dropdown
+                SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                WAIT 1
+                # Type to find currency
+                SEND KEYS "%currency%" WINDOW "Strategy Tester"
+                WAIT 1
+                
+                # Try to select the currency - if it doesn't exist, this will fail
+                SEND KEYS Enter WINDOW "Strategy Tester"
+                WAIT 1
+            CATCH
+                APPEND TEXT "Symbol %currency% not available with broker for EA %eaName%, skipping...\r\n" TO FILE "%logFilePath%"
+                
+                # Close Strategy Tester window to prepare for next currency
+                SEND KEYS Alt+F4 WINDOW "Strategy Tester"
+                WAIT 2
+                
+                # Reset consecutive failures counter since we're skipping by design
+                SET consecutiveFailures TO 0
+                
+                CONTINUE
+            END TRY
+            
+            # Select Model - only once per currency
+            TRY
+                # Tab to Model field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                WAIT 1
+                # Open dropdown
+                SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                WAIT 1
+                # Select "Every tick"
+                SEND KEYS "Every tick" WINDOW "Strategy Tester"
+                WAIT 1
+                SEND KEYS Enter WINDOW "Strategy Tester"
+                WAIT 1
+            CATCH
+                # Fallback to direct click if hotkeys fail
+                TRY
+                    CLICK "Model" dropdown
+                    WAIT 1
+                    CLICK "Every tick"
+                    WAIT 1
+                CATCH
+                    APPEND TEXT "Error selecting model for EA %eaName%: %ERROR MESSAGE%. Using default model.\r\n" TO FILE "%logFilePath%"
+                    # Continue anyway with default model
+                END TRY
+            END TRY
+            
+            # Set Date Range - only once per currency
+            TRY
+                # Tab to "Use date" checkbox (skip timeframe for now)
+                SEND KEYS Tab Tab WINDOW "Strategy Tester"
+                WAIT 1
+                # Check the box if not already checked
+                SEND KEYS Space WINDOW "Strategy Tester"
+                WAIT 1
+                
+                # Tab to From date field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                WAIT 1
+                # Select all text and replace
+                SEND KEYS Ctrl+a WINDOW "Strategy Tester"
+                WAIT 1
+                SEND KEYS "%startDate%" WINDOW "Strategy Tester"
+                WAIT 1
+                
+                # Tab to To date field
+                SEND KEYS Tab WINDOW "Strategy Tester"
+                WAIT 1
+                # Select all text and replace
+                SEND KEYS Ctrl+a WINDOW "Strategy Tester"
+                WAIT 1
+                SEND KEYS "%endDate%" WINDOW "Strategy Tester"
+                WAIT 1
+            CATCH
+                # Fallback to direct click if hotkeys fail
+                TRY
+                    CLICK "Use date" checkbox
+                    WAIT 1
+                    CLEAR "From" field
+                    TYPE "%startDate%"
+                    WAIT 1
+                    CLEAR "To" field
+                    TYPE "%endDate%"
+                    WAIT 1
+                CATCH
+                    APPEND TEXT "Error setting date range for EA %eaName%: %ERROR MESSAGE%. Using default date range.\r\n" TO FILE "%logFilePath%"
+                    # Continue anyway with default date range
+                END TRY
+            END TRY
+            
+            # Now loop through timeframes - only changing the timeframe setting
+            FOR EACH timeframe IN %timeframes%
+                TRY
+                    APPEND TEXT "Setting timeframe to %timeframe% for EA %eaName% on %currency%\r\n" TO FILE "%logFilePath%"
+                    
+                    # Navigate back to the timeframe field
+                    # First, ensure focus is in the Strategy Tester window
+                    CLICK WINDOW "Strategy Tester"
+                    WAIT 1
+                    
+                    # Navigate to Expert Advisor field (first field)
+                    SEND KEYS Home WINDOW "Strategy Tester"
+                    WAIT 1
+                    
+                    # Tab to Timeframe field (4th field)
+                    SEND KEYS Tab Tab Tab WINDOW "Strategy Tester"
+                    WAIT 1
+                    
+                    # Open dropdown
+                    SEND KEYS Alt+Down WINDOW "Strategy Tester"
+                    WAIT 1
+                    
+                    # Select timeframe
+                    SEND KEYS "%timeframe%" WINDOW "Strategy Tester"
+                    WAIT 1
+                    SEND KEYS Enter WINDOW "Strategy Tester"
+                    WAIT 1
+                    
+                    # Start Test with keyboard shortcut
+                    SEND KEYS F9 WINDOW "Strategy Tester"
+                    WAIT 5
+                    
+                    APPEND TEXT "Test started for EA %eaName% on %currency% with %timeframe%\r\n" TO FILE "%logFilePath%"
+                    
+                                        # Wait for test to complete with dynamic waiting
+                    SET testWaitTime TO 0
+                    WHILE testWaitTime < %maxWaitTimeForTest%
+                        # Check if "Start" button is enabled again (test completed)
+                        TRY
+                            # Check if progress bar is gone or if Start button is enabled
+                            IF ELEMENT "Start button (enabled)" EXISTS
+                                BREAK
+                            END IF
+                        CATCH
+                            # Continue waiting
+                        END TRY
+                        
+                        WAIT 10
+                        SET testWaitTime TO %testWaitTime% + 10
+                    END WHILE
+                    
+                    # Check if we timed out
+                    IF testWaitTime >= %maxWaitTimeForTest%
+                        APPEND TEXT "Warning: Test for EA %eaName% on %currency% with %timeframe% timed out after %maxWaitTimeForTest% seconds\r\n" TO FILE "%logFilePath%"
+                        
+                        # Try to cancel the test
+                        TRY
+                            SEND KEYS Escape WINDOW "Strategy Tester"
+                            WAIT 2
+                        CATCH
+                            # Ignore errors when canceling
+                        END TRY
+                        
+                        # Skip to next timeframe
+                        CONTINUE
+                    END IF
+                    
+                    # Save Report with keyboard shortcuts
+                    TRY
+                        # Use keyboard shortcut to save report
+                        SEND KEYS Alt+f WINDOW "Strategy Tester"  # Open File menu
+                        WAIT 1
+                        SEND KEYS s WINDOW "Strategy Tester"      # Select Save As
+                        WAIT 2
+                        
+                        # Set file name and location
+                        SET reportFileName TO "%eaName%_%currency%_%timeframe%_(%reportCounter%)"
+                        SEND KEYS "%reportPath%\%reportFileName%" WINDOW "Save As"
+                        WAIT 1
+                        SEND KEYS Enter WINDOW "Save As"
+                        WAIT 3
+                        
+                        APPEND TEXT "Report saved: %reportFileName%\r\n" TO FILE "%logFilePath%"
+                        
+                        # Increment counter
+                        SET reportCounter TO %reportCounter% + 1
+                        
+                        # Reset consecutive failures counter on success
+                        SET consecutiveFailures TO 0
+                        
+                        # Close report tab with keyboard shortcut
+                        SEND KEYS Ctrl+F4 WINDOW "Strategy Tester"
+                        WAIT 2
+                    CATCH
+                        # Fallback to mouse method if keyboard shortcuts fail
+                        TRY
+                            RIGHT CLICK on report tab
+                            WAIT 1
+                            CLICK "Save as Report"
+                            WAIT 2
+                            
+                            # Set file name and location
+                            TYPE "%reportPath%\%eaName%_%currency%_%timeframe%_(%reportCounter%)"
+                            WAIT 1
+                            CLICK "Save" button
+                            WAIT 3
+                            
+                            APPEND TEXT "Report saved using fallback method\r\n" TO FILE "%logFilePath%"
+                            
+                            # Increment counter
+                            SET reportCounter TO %reportCounter% + 1
+                            
+                            # Reset consecutive failures counter on success
+                            SET consecutiveFailures TO 0
+                            
+                            # Close report tab
+                            CLICK "X" on report tab
+                            WAIT 2
+                        CATCH
+                            APPEND TEXT "Warning: Could not save report for EA %eaName% on %currency% with %timeframe%: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                            SET consecutiveFailures TO %consecutiveFailures% + 1
+                        END TRY
+                    END TRY
+                    
+                CATCH
+                    APPEND TEXT "Error during test for EA %eaName% on %currency% with %timeframe%: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                    SET consecutiveFailures TO %consecutiveFailures% + 1
+                    
+                    # Check if we need to restart MT5 due to too many consecutive failures
+                    IF %consecutiveFailures% >= %maxConsecutiveFailures% AND %autoRestartOnFailure%
+                        APPEND TEXT "Too many consecutive failures (%consecutiveFailures%). Restarting MT5...\r\n" TO FILE "%logFilePath%"
+                        
+                        # Close MT5
+                        TRY
+                            SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+                            WAIT 5
+                            
+                            # Force close if needed
+                            IF WINDOW "MetaTrader 5" EXISTS
+                                KILL PROCESS "terminal64.exe"
+                                WAIT 5
+                            END IF
+                        CATCH
+                            # Ignore errors when closing
+                        END TRY
+                        
+                        # Restart MT5
+                        TRY
+                            RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                            WAIT %initialLoadTime%
+                            SET consecutiveFailures TO 0
+                            
+                            # Skip to next currency pair after restart
+                            BREAK
+                        CATCH
+                            APPEND TEXT "Failed to restart MT5: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                        END TRY
+                    END IF
+                    
+                    # Try to recover and continue with next test
+                    TRY
+                        # Close any open dialogs with Escape key
+                        SEND KEYS Escape
+                        WAIT 1
+                        SEND KEYS Escape
+                        WAIT 1
+                    END TRY
+                END TRY
+                
+                # Add a pause between tests to allow system to stabilize
+                WAIT 5
+            END FOR
+            
+            # Close Strategy Tester window after all timeframes for this currency
+            TRY
+                SEND KEYS Alt+F4 WINDOW "Strategy Tester"
+                WAIT 2
+            CATCH
+                # If we can't close it normally, try to force close
+                TRY
+                    KILL PROCESS "terminal64.exe"
+                    WAIT 5
+                    RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                    WAIT %initialLoadTime%
+                CATCH
+                    APPEND TEXT "Failed to restart MT5 after force close: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                END TRY
+            END TRY
+            
+            APPEND TEXT "Completed all timeframes for EA %eaName% on %currency%\r\n" TO FILE "%logFilePath%"
+        CATCH
+            APPEND TEXT "Error processing currency %currency% with EA %eaName%: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+            SET consecutiveFailures TO %consecutiveFailures% + 1
+            
+            # Check if we need to restart MT5 due to too many consecutive failures
+            IF %consecutiveFailures% >= %maxConsecutiveFailures% AND %autoRestartOnFailure%
+                APPEND TEXT "Too many consecutive failures (%consecutiveFailures%). Restarting MT5...\r\n" TO FILE "%logFilePath%"
+                
+                # Close MT5
+                TRY
+                    SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+                    WAIT 5
+                    
+                    # Force close if needed
+                    IF WINDOW "MetaTrader 5" EXISTS
+                        KILL PROCESS "terminal64.exe"
+                        WAIT 5
+                    END IF
+                CATCH
+                    # Ignore errors when closing
+                END TRY
+                
+                # Restart MT5
+                TRY
+                    RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                    WAIT %initialLoadTime%
+                    SET consecutiveFailures TO 0
+                CATCH
+                    APPEND TEXT "Failed to restart MT5: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                END TRY
+            ELSE
+                # Try to recover and continue with next currency
+                TRY
+                    # Close any open dialogs with Escape key
+                    SEND KEYS Escape
+                    WAIT 1
+                    SEND KEYS Escape
+                    WAIT 1
+                    
+                    # Try to close Strategy Tester if open
+                    IF WINDOW "Strategy Tester" EXISTS OR WINDOW "Tester" EXISTS
+                        SEND KEYS Alt+F4 WINDOW "Strategy Tester"
+                        WAIT 2
+                    END IF
+                CATCH
+                    # If recovery fails, try to restart MT5
+                    APPEND TEXT "Recovery failed, attempting to restart MT5\r\n" TO FILE "%logFilePath%"
+                    SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+                    WAIT 5
+                    RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                    WAIT %initialLoadTime%
+                END TRY
+            END IF
+        END TRY
+    END FOR
+    
+    APPEND TEXT "Completed all currencies for EA %eaName%\r\n" TO FILE "%logFilePath%"
+END FOR
+
+# Close MT5 when done using keyboard shortcut
+TRY
+    APPEND TEXT "All tests completed. Closing MetaTrader 5\r\n" TO FILE "%logFilePath%"
+    SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+    WAIT 5
+    
+    # Check if MT5 is still running and force close if needed
+    IF WINDOW "MetaTrader 5" EXISTS
+        KILL PROCESS "terminal64.exe"
+        APPEND TEXT "Forced close of MetaTrader 5\r\n" TO FILE "%logFilePath%"
+    END IF
+CATCH
+    APPEND TEXT "Error closing MetaTrader 5: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+END TRY
+
+# Final log entry
+APPEND TEXT "Script completed at %CURRENT DATE% %CURRENT TIME%\r\n" TO FILE "%logFilePath%"
+DISPLAY MESSAGE "Backtesting automation completed. See log file for details: %logFilePath%"
+
+# Restart the script automatically for continuous operation
+TRY
+    # Wait a short time before restarting
+    WAIT 30
+    
+    # Get the path to the current flow
+    SET currentFlowPath TO FLOW PATH
+    
+    # Run the flow again
+    RUN FLOW "%currentFlowPath%"
+CATCH
+    APPEND TEXT "Error restarting flow: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+END TRY
