@@ -75,6 +75,19 @@ CATCH
     END IF
 END TRY
 
+# Function to verify and set a value only if needed
+FUNCTION VerifyAndSetValue
+    PARAMETERS fieldName currentValue targetValue
+    
+    IF "%currentValue%" != "%targetValue%"
+        APPEND TEXT "Changing %fieldName% from '%currentValue%' to '%targetValue%'\r\n" TO FILE "%logFilePath%"
+        RETURN false  # Value needs to be set
+    ELSE
+        APPEND TEXT "%fieldName% already set to '%targetValue%', skipping\r\n" TO FILE "%logFilePath%"
+        RETURN true  # Value already correct
+    END IF
+END FUNCTION
+
 # Function to load configuration
 FUNCTION LoadConfiguration
     IF FILE EXISTS "%configFilePath%"
@@ -1186,14 +1199,4 @@ FOR EACH eaFile IN %eaList% WITH INDEX eaIndex
                     CALL CaptureErrorState WITH PARAMETERS "TestExecution"
                     SET consecutiveFailures TO %consecutiveFailures% + 1
                     
-                    # Check if we need to restart MT5 due to too many consecutive failures
-                    IF %consecutiveFailures% >= %maxConsecutiveFailures% AND %autoRestartOnFailure%
-                        # Check system resources before deciding to restart
-                        CALL DetailedSystemCheck
-                        
-                        # If system is under heavy load, wait before restarting
-                        IF %availableMemory% < %lowMemoryThreshold%
-                            APPEND TEXT "System under heavy load (%availableMemory% MB). Waiting before restart...\r\n" TO FILE "%logFilePath%"
-                            CALL AdaptiveWait WITH PARAMETERS 60  # Wait longer
-                            
-                            # Check if MT
+                    # Check if we need to restart MT5 due
