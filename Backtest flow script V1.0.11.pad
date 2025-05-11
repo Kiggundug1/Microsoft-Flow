@@ -472,78 +472,6 @@ WHILE %retryCount% < %maxRetries%
         END IF
         
         APPEND TEXT "MetaTrader 5 launched successfully\r\n" TO FILE "%logFilePath%"
-        
-        # Configure MT5 to use unlimited bars in chart
-        TRY
-            APPEND TEXT "Configuring MT5 to use unlimited bars in chart...\r\n" TO FILE "%logFilePath%"
-            
-            # Open MT5 settings dialog
-            SEND KEYS Alt+o WINDOW "MetaTrader 5"
-            CALL AdaptiveWait WITH PARAMETERS 2
-            
-            # Navigate to Charts tab (typically the 2nd tab)
-            SEND KEYS Tab WINDOW "Settings"
-            CALL AdaptiveWait WITH PARAMETERS 1
-            SEND KEYS Right WINDOW "Settings"
-            CALL AdaptiveWait WITH PARAMETERS 1
-            
-            # Navigate to "Max bars in chart" field
-            # The exact number of tabs needed may vary based on MT5 version
-            # Typically need to tab multiple times to reach this field
-            SEND KEYS Tab Tab Tab Tab Tab Tab Tab Tab WINDOW "Settings"
-            CALL AdaptiveWait WITH PARAMETERS 1
-            
-            # Select all text in the field and replace with "0" (unlimited)
-            SEND KEYS Ctrl+a WINDOW "Settings"
-            CALL AdaptiveWait WITH PARAMETERS 1
-            SEND KEYS "0" WINDOW "Settings"
-            CALL AdaptiveWait WITH PARAMETERS 1
-            
-            # Navigate to OK button and click it
-            SEND KEYS Tab Tab Tab Tab Tab Tab Tab Tab Tab WINDOW "Settings"
-            CALL AdaptiveWait WITH PARAMETERS 1
-            SEND KEYS Enter WINDOW "Settings"
-            CALL AdaptiveWait WITH PARAMETERS 2
-            
-            APPEND TEXT "Successfully set maximum bars in chart to unlimited\r\n" TO FILE "%logFilePath%"
-        CATCH
-            APPEND TEXT "Warning: Could not set maximum bars in chart to unlimited: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
-            
-            # Try alternative method if first method fails
-            TRY
-                # Alternative method using more direct keyboard navigation
-                SEND KEYS Alt WINDOW "MetaTrader 5"
-                CALL AdaptiveWait WITH PARAMETERS 1
-                SEND KEYS t WINDOW "MetaTrader 5"  # Tools menu
-                CALL AdaptiveWait WITH PARAMETERS 1
-                SEND KEYS o WINDOW "MetaTrader 5"  # Options
-                CALL AdaptiveWait WITH PARAMETERS 2
-                
-                # Navigate to Charts tab
-                SEND KEYS Right WINDOW "Settings"
-                CALL AdaptiveWait WITH PARAMETERS 1
-                
-                # Try to find the Max bars field by typing its name
-                SEND KEYS "Max bars" WINDOW "Settings"
-                CALL AdaptiveWait WITH PARAMETERS 1
-                SEND KEYS Tab WINDOW "Settings"
-                CALL AdaptiveWait WITH PARAMETERS 1
-                
-                # Enter 0 for unlimited
-                SEND KEYS "0" WINDOW "Settings"
-                CALL AdaptiveWait WITH PARAMETERS 1
-                
-                # Press OK
-                SEND KEYS Alt+o WINDOW "Settings"
-                CALL AdaptiveWait WITH PARAMETERS 2
-                
-                APPEND TEXT "Successfully set maximum bars in chart to unlimited using alternative method\r\n" TO FILE "%logFilePath%"
-            CATCH
-                APPEND TEXT "Failed to set maximum bars in chart to unlimited. Backtests may have limited historical data.\r\n" TO FILE "%logFilePath%"
-                # Continue with the script despite this error
-            END TRY
-        END TRY
-        
         BREAK
     CATCH
         SET retryCount TO %retryCount% + 1
@@ -1196,4 +1124,86 @@ FOR EACH eaFile IN %eaList% WITH INDEX eaIndex
                             APPEND TEXT "System under heavy load (%availableMemory% MB). Waiting before restart...\r\n" TO FILE "%logFilePath%"
                             CALL AdaptiveWait WITH PARAMETERS 60  # Wait longer
                             
-                            # Check if MT
+                            # Check if MT5 has recovered on its own
+                            TRY
+                                SEND KEYS Alt+Tab WINDOW "MetaTrader 5"
+                                CALL AdaptiveWait WITH PARAMETERS 2
+                                
+                                IF WINDOW "MetaTrader 5" EXISTS
+                                    APPEND TEXT "MT5 has recovered. Continuing without restart.\r\n" TO FILE "%logFilePath%"
+                                    SET consecutiveFailures TO 0
+                                    CONTINUE
+                                END IF
+                            CATCH
+                                # Continue with restart
+                            END TRY
+                        END IF
+                        
+                        APPEND TEXT "Too many consecutive failures (%consecutiveFailures%). Restarting MT5...\r\n" TO FILE "%logFilePath%"
+                        
+                        # Close MT5 gracefully first
+                        TRY
+                            SEND KEYS Alt+F4 WINDOW "MetaTrader 5"
+                            CALL AdaptiveWait WITH PARAMETERS 10
+                            
+                            # Force close if needed
+                            IF WINDOW "MetaTrader 5" EXISTS
+                                KILL PROCESS "terminal64.exe"
+                                CALL AdaptiveWait WITH PARAMETERS 10
+                            END IF
+                        CATCH
+                            # Ignore errors when closing
+                        END TRY
+                        
+                        # Wait longer before restarting to allow system to free resources
+                        CALL AdaptiveWait WITH PARAMETERS 30
+                        
+                        # Restart MT5
+                        TRY
+                            RUN PROGRAM "%mt5Path%" WAIT FOR COMPLETION No
+                            CALL AdaptiveWait WITH PARAMETERS %initialLoadTime% * 1.5  # Wait longer for initial load
+                            SET consecutiveFailures TO 0
+                            
+                            # Skip to next currency pair after restart
+                            BREAK
+                        CATCH
+                            APPEND TEXT "Failed to restart MT5: %ERROR MESSAGE%\r\n" TO FILE "%logFilePath%"
+                        END TRY
+                    END IF
+                    
+                    # Try to recover and continue with next test
+                    TRY
+                        # Close any open dialogs with Escape key
+                        SEND KEYS Escape
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        SEND KEYS Escape
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        
+                        # Try Alt+F4 to close any open windows
+                        SEND KEYS Alt+F4
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                        
+                        # If a confirmation dialog appears, press Enter to confirm
+                        SEND KEYS Enter
+                        CALL AdaptiveWait WITH PARAMETERS 1
+                    END TRY
+                END TRY
+                
+                # Add a pause between tests to allow system to stabilize
+                CALL AdaptiveWait WITH PARAMETERS 5
+                
+                # Save checkpoint after each test
+                CALL SaveCheckpoint
+            END FOR
+            
+            # Close Strategy Tester window after all timeframes for this currency
+            TRY
+                SEND KEYS Alt+F4 WINDOW "Strategy Tester"
+                CALL AdaptiveWait WITH PARAMETERS 2
+            CATCH
+                # If we can't close it normally, try to force close
+                TRY
+                    # Try alternative keyboard shortcut
+                    SEND KEYS Ctrl+w WINDOW "Strategy Tester"
+                    CALL AdaptiveWait WITH PARAMETERS 2
+                    

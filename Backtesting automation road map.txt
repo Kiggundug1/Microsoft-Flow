@@ -1,0 +1,146 @@
+Here's a step-by-step guide to implement your MT5 backtesting automation in **Power Automate Desktop (PAD)**:
+---
+
+### **Step 1: Set Up Power Automate Desktop**
+1. **Install Power Automate Desktop**
+   - Download from [Microsoft's official site](https://flow.microsoft.com/en-us/desktop/)
+   - Sign in with your Microsoft account (work or personal)
+
+2. **Create a New Flow**
+   - Open PAD → Click **"New flow"**
+   - Name it **"MT5 Backtest Automation"**
+
+---
+
+### **Step 2: Replicate Variables from VSCode Script**
+1. **Initialize Variables**
+   - Add an **"Initialize variable"** action for each variable in your script.
+   - Example:
+     ```
+     Name: mt5Path
+     Value: "C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe"
+     ```
+   - Repeat for:
+     - `eaPath`, `reportPath`, `startDate`, `endDate`, etc.
+     - Lists (`timeframes`, `currencies`)
+
+2. **Set Up Error Handling**
+   - Use **"Try-Catch"** blocks (under **"Error Handling"** in PAD).
+   - Example:
+     ```
+     TRY
+       Launch MT5
+     CATCH
+       Log error
+       Retry or exit
+     END TRY
+     ```
+
+---
+
+### **Step 3: Launch MT5 & Configure Strategy Tester**
+1. **Launch MT5**
+   - Use **"Run application"** action:
+     ```
+     Application path: %mt5Path%
+     Wait for exit: No
+     ```
+   - Add a **"Wait"** action (e.g., 15 seconds for initial load).
+
+2. **Open Strategy Tester**
+   - Use **"Send keys"** to press `Ctrl+R` or `Alt+T`.
+   - Add a **"Wait for window"** action to confirm "Strategy Tester" opens.
+
+3. **Select EA, Symbol, and Timeframe**
+   - Use **"Send keys"** to navigate fields:
+     - **EA Dropdown**: `Home → Alt+Down → Type EA name → Enter`
+     - **Symbol**: `Tab → Alt+Down → Type currency → Enter`
+     - **Timeframe**: `Tab → Alt+Down → Type timeframe → Enter`
+
+4. **Set Date Range**
+   - Use **"Send keys"** to fill `From`/`To` dates:
+     ```
+     Tab to "From" → Ctrl+A → %startDate%
+     Tab to "To" → Ctrl+A → %endDate%
+     ```
+
+---
+
+### **Step 4: Run Backtest & Save Reports**
+1. **Start Backtest**
+   - **"Send keys"** `F9` to run.
+   - Use **"Wait for element"** (e.g., "Report tab") or a **loop** to monitor progress:
+     ```
+     WHILE "Start button" is disabled
+       Wait 10 seconds
+       Check progress (OCR or status bar text)
+     END WHILE
+     ```
+
+2. **Save Excel Report**
+   - Right-click **"Report tab"** → **"Send keys"** `R → E` (for Excel).
+   - In "Save As" dialog:
+     - **"Send keys"** `Ctrl+A` (select filename).
+     - **"Set text"** to `%reportPath%\%eaName%_%currency%_%timeframe%.xml`.
+     - Press `Enter`.
+
+3. **Close Report Tab**
+   - **"Send keys"** `Ctrl+F4`.
+
+### **Step 5: Logging & Error Recovery**
+1. **Logging**
+   - Use **"Write to text file"** to append logs:
+     ```
+     File: D:\FOREX\automation_log.txt
+     Text: "[%DateTime%] Test completed: %eaName% %currency% %timeframe%"
+     Append: Yes
+     ```
+
+2. **Error Recovery**
+   - Use **"Take screenshot"** on errors.
+   - For frozen MT5:
+     ```
+     IF window "Not Responding" exists
+       Kill process "terminal64.exe"
+       Restart MT5
+     END IF
+     ```
+
+### **Step 7: Schedule & Deploy**
+1. **Run on EC2**
+   - Save the flow as **".PAD"** file.
+   - Create a **scheduled task** on EC2:
+     ```
+     Trigger: At startup
+     Action: Run "Power Automate Desktop" with flow file
+     ```
+
+2. **Keep Session Alive**
+   - Add a **"Run PowerShell"** action periodically:
+     ```
+     $WShell = New-Object -ComObject WScript.Shell; $WShell.SendKeys('{F15}')
+     ```
+
+### **Key Differences from VSCode Script**
+| Feature          | VSCode (Script) | Power Automate Desktop |
+|------------------|-----------------|------------------------|
+| **Coding**       | Text-based      | GUI drag-and-drop      |
+| **Error Handling**| TRY/CATCH       | TRY-CATCH block        |
+| **Loops**        | WHILE/FOR       | "Loop" action          |
+| **OCR**          | Custom code     | Built-in OCR           |
+| **Cloud Sync**   | AWS CLI         | AWS/PowerShell action  |
+
+### **Final Tips**
+1. **Test Incrementally**:
+   - First, launch MT5 → Then open Tester → Then run one backtest.
+
+2. **Use PAD’s OCR**:
+   - For detecting progress (%) or dialog boxes.
+
+3. **Add Delays**:
+   - MT5 can be slow; use **"Wait"** (2-5 sec) between actions.
+
+4. **Monitor EC2**:
+   - Use **Amazon CloudWatch** to alert if CPU/Memory spikes.
+
+Your flow should now replicate the VSCode script with the reliability of Power Automate! Let me know if you'd like help with any specific action.
