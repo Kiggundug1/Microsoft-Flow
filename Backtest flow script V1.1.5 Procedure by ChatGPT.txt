@@ -1,0 +1,132 @@
+To replicate the backtest automation flow from your `Backtest flow script V1.1.5.txt` in **Power Automate Desktop (PAD)**, follow these general steps. Given the script’s length and complexity, I'll give you a phased breakdown of the procedure to help you build the automation incrementally.
+
+---
+
+## ✅ Phase 1: Environment Setup and Initialization
+
+### Step 1: Open Power Automate Desktop and Create a New Flow
+
+1. Launch Power Automate Desktop.
+2. Click **"New Flow"**, name it something like `MT5_Backtest_Automation`, then click **Create**.
+
+### Step 2: Set Up Configuration Variables
+
+Use the “**Set Variable**” action to define key paths and parameters from the script:
+
+* `mt5Path` → `"C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe"`
+* `eaPath`, `reportPath`, `startDate`, `endDate`, etc.
+
+### Step 3: Check if Folders Exist
+
+Use the “**If Folder Exists**” action to:
+
+* Verify `mt5Path`, `eaPath`, `reportPath`, etc.
+* If not present, create them using **Create Folder** or show error messages with **Display Message**.
+
+---
+
+## ✅ Phase 2: Load Configuration from JSON
+
+### Step 4: Read Configuration File
+
+Use the **Read Text from File** action to get `backtest_config.json`, then:
+
+* Use **Convert JSON to Custom Object** to parse it.
+* Use **Set Variable** actions to overwrite default values if present in the JSON.
+
+---
+
+## ✅ Phase 3: Launch and Verify MetaTrader 5
+
+### Step 5: Launch MT5
+
+Use **Run Application**:
+
+* Application Path = `mt5Path`
+* Set to run without waiting.
+
+### Step 6: Wait for MT5 to Load
+
+Use **Delay** for `initialLoadTime` seconds.
+
+### Step 7: Verify MT5 Window
+
+Use **Wait for Window** with window name `"MetaTrader 5"`.
+
+---
+
+## ✅ Phase 4: Navigate UI to Strategy Tester
+
+### Step 8: Open Strategy Tester
+
+Use **Send Keys** with `Alt + T`. Then use **Wait for Window** to ensure "Strategy Tester" opens.
+
+### Step 9: Automate Input Fields
+
+Use **Send Keys** and **UI Automation** to:
+
+* Select EA, Symbol, Timeframe, Date range.
+* This part will require element UI mapping or careful tabbing using `Send Keys`.
+
+---
+
+## ✅ Phase 5: Backtest Execution Loop
+
+### Step 10: Loop through EAs, Currencies, Timeframes
+
+Use **Loop Actions**:
+
+* Loop `Get files in folder` for EA `.ex5` files.
+* Use nested **For Each** for currencies and timeframes.
+* For each combination, configure Strategy Tester and run test with `F9`.
+
+---
+
+## ✅ Phase 6: Monitor and Save Report
+
+### Step 11: Wait for Test Completion
+
+Use repeated **Wait** + **Get Text from UI Element** or **Check if Element Exists** on progress bar or report tab.
+
+### Step 12: Save Report
+
+Simulate:
+
+* Right-click → Report → Excel
+* Use **Send Keys** and **Clipboard Actions** to get suggested file name.
+* Save to `reportPath`.
+
+---
+
+## ✅ Phase 7: Error Handling and Restart Logic
+
+### Step 13: Error Catching
+
+Use PAD’s **Try-Catch** actions to:
+
+* Capture screenshots (with **Take Screenshot**).
+* Restart MT5 on repeated failure (Kill process and rerun).
+
+---
+
+## ✅ Phase 8: Save Checkpoints and Performance Logs
+
+### Step 14: Save JSON Checkpoint
+
+Use:
+
+* **Create JSON from Custom Object**
+* **Write Text to File** for checkpoints and logs.
+
+---
+
+## ✅ Phase 9: Clean-Up
+
+### Step 15: Final Actions
+
+* Exit MT5 via **Send Keys Alt+F4**
+* Delete checkpoint if all tests completed.
+
+---
+
+Would you like me to prepare a downloadable `.pad` file or screenshots of how to build the first part?
