@@ -1,0 +1,251 @@
+
+
+
+Context
+— 11 items
+Creating the Backtest Flow Script in Power Automate Desktop
+I'll guide you through the step-by-step process of recreating the Backtest Flow Script V1.1.5 in Power Automate Desktop (PAD). This is a comprehensive script for automating MetaTrader 5 backtesting across multiple EAs, currency pairs, and timeframes.
+
+Step 1: Launch Power Automate Desktop
+Start-Process "Power Automate Desktop"
+
+Copy
+Execute
+
+Step 2: Create a New Flow
+Click on "New flow"
+Name it "MT5 Backtest Automation"
+Click "Create"
+Step 3: Initialize Variables
+Add "Set variable" actions for all the configuration variables:
+
+Add a Set variable action:
+
+Variable name: defaultConfig
+Value type: JSON
+Value: Copy the entire JSON configuration from the original script (the block starting with "mt5Path": "C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe")
+Add multiple Set variable actions for each of these variables:
+
+mt5Path = %defaultConfig.mt5Path%
+eaPath = %defaultConfig.eaPath%
+reportPath = %defaultConfig.reportPath%
+startDate = %defaultConfig.startDate%
+endDate = %defaultConfig.endDate%
+reportCounter = %defaultConfig.reportCounter%
+maxWaitTimeForTest = %defaultConfig.maxWaitTimeForTest%
+initialLoadTime = %defaultConfig.initialLoadTime%
+maxRetries = %defaultConfig.maxRetries%
+skipOnError = %defaultConfig.skipOnError%
+autoRestartOnFailure = %defaultConfig.autoRestartOnFailure%
+maxConsecutiveFailures = %defaultConfig.maxConsecutiveFailures%
+consecutiveFailures = 0
+adaptiveWaitEnabled = %defaultConfig.adaptiveWaitEnabled%
+baseWaitMultiplier = %defaultConfig.baseWaitMultiplier%
+maxAdaptiveWaitMultiplier = %defaultConfig.maxAdaptiveWaitMultiplier%
+currentAdaptiveMultiplier = 1.0
+systemLoadCheckInterval = %defaultConfig.systemLoadCheckInterval%
+lastSystemLoadCheck = 0
+lowMemoryThreshold = %defaultConfig.lowMemoryThreshold%
+availableMemory = 1000
+verboseLogging = %defaultConfig.verboseLogging%
+logProgressInterval = %defaultConfig.logProgressInterval%
+detailedSystemCheckInterval = %defaultConfig.detailedSystemCheckInterval%
+logFilePath = %defaultConfig.logFilePath%
+errorScreenshotsPath = %defaultConfig.errorScreenshotsPath%
+checkpointFile = %defaultConfig.checkpointFile%
+eaIndex = 0
+currencyIndex = 0
+timeframeIndex = 0
+resumeFromCheckpoint = false
+configFilePath = %defaultConfig.configFilePath%
+performanceHistoryFile = %defaultConfig.performanceHistoryFile%
+retryBackoffMultiplier = %defaultConfig.retryBackoffMultiplier%
+maxRetryWaitTime = %defaultConfig.maxRetryWaitTime%
+Step 4: Add Path Validation
+Add an If action:
+
+Condition: FOLDER NOT EXISTS "%mt5Path%"
+Inside the If block: Add a Display message action with text: "MetaTrader 5 path does not exist: %mt5Path%"
+Add another If action:
+
+Condition: FOLDER NOT EXISTS "%eaPath%"
+Inside the If block: Add a Display message action with text: "EA path does not exist: %eaPath%"
+Add another If action:
+
+Condition: FOLDER NOT EXISTS "%reportPath%"
+Inside the If block: Add a Create folder action with path: "%reportPath%"
+Add another If action:
+
+Condition: FOLDER NOT EXISTS "%errorScreenshotsPath%"
+Inside the If block: Add a Create folder action with path: "%errorScreenshotsPath%"
+Step 5: Initialize Performance History
+Add a Create dictionary action:
+
+Dictionary name: performanceHistory
+Add an If action:
+
+Condition: FILE EXISTS "%performanceHistoryFile%"
+Inside the If block:
+Add a Read text from file action with path: "%performanceHistoryFile%" and store in variable: historyData
+Add a Parse JSON action with JSON text: "%historyData%" and store in variable: performanceHistory
+Step 6: Create Log Entry for Start of Execution
+Add a Set variable action:
+
+Variable name: logEntry
+Value type: JSON
+Value:
+{
+  "timestamp": "%CURRENT DATE% %CURRENT TIME%",
+  "level": "INFO",
+  "message": "Started execution",
+  "details": {
+    "mt5Path": "%mt5Path%",
+    "eaPath": "%eaPath%",
+    "reportPath": "%reportPath%"
+  }
+}
+
+Copy
+
+
+Add an Append text to file action:
+
+File path: "%logFilePath%"
+Text to append: "%logEntry TO JSON%\r\n"
+Step 7: Create Helper Functions
+You'll need to create several custom functions. For each function, click on "Create new function" in the PAD interface:
+
+Function: LogMessage
+Parameters: level, message, details
+
+Add a Set variable action:
+
+Variable name: logEntry
+Value type: JSON
+Value:
+{
+  "timestamp": "%CURRENT DATE% %CURRENT TIME%",
+  "level": "%level%",
+  "message": "%message%"
+}
+
+Copy
+
+
+Add an If action:
+
+Condition: "%details%" != ""
+Inside the If block: Add a Set dictionary value action to set logEntry.details to %details%
+Add an If action:
+
+Condition: %verboseLogging% OR "%level%" = "ERROR" OR "%level%" = "WARN" OR "%level%" = "INFO"
+Inside the If block: Add an Append text to file action with path: "%logFilePath%" and text: "%logEntry TO JSON%\r\n"
+Function: VerifyAndSetValue
+Parameters: fieldName, currentValue, targetValue
+Add an If action:
+Condition: "%currentValue%" != "%targetValue%"
+Inside the If block:
+Add a Run function action to call LogMessage with parameters: "DEBUG", "Changing %fieldName% from '%currentValue%' to '%targetValue%'", ""
+Add a Return from function action with value: false
+Inside the Else block:
+Add a Run function action to call LogMessage with parameters: "DEBUG", "%fieldName% already set to '%targetValue%', skipping", ""
+Add a Return from function action with value: true
+Function: LoadConfiguration
+Create this function following the same pattern as in the original script, using If, Read text from file, Parse JSON, and Set variable actions.
+
+Function: AdaptiveWait
+Parameters: waitTime, isRetry, retryCount
+Add the logic for calculating wait time based on parameters
+Add a Wait action with the calculated wait time
+Function: LegacyAdaptiveWait
+Parameters: waitTime
+Add a Run function action to call AdaptiveWait with parameters: %waitTime%, false, 0
+Function: CaptureErrorState
+Parameters: errorContext
+Add actions to capture screenshots and save partial results
+Function: SaveCheckpoint
+Add actions to save the current state to a checkpoint file
+
+Function: PerformMemoryCleanup
+Add actions to clean up memory when it's critically low
+
+Function: DetailedSystemCheck
+Add actions to check system resources and adjust wait times
+
+Function: EstimateTestDuration
+Parameters: currency, timeframe, eaName
+Add logic to estimate test duration based on historical data or parameters
+Function: UpdatePerformanceHistory
+Parameters: currency, timeframe, eaName, actualDuration
+Add actions to update and save performance history
+UI Interaction Helper Functions
+Create the following UI interaction functions:
+
+NavigateToField
+EnterValue
+SelectDropdownItem
+ConfigureField
+ConfigureDropdownField
+Step 8: Create Lists for Timeframes, Currencies, and EAs
+Add a Create list action:
+
+List name: timeframes
+Add Add item to list actions for each timeframe (M1, M2, etc.)
+Add a Create list action:
+
+List name: currencies
+Add Add item to list actions for each currency pair
+Add a Create list action:
+
+List name: eaList
+Add a Get files in folder action with path: "%eaPath%", pattern: "*.ex5", and store in: eaList
+Step 9: Load Configuration and Check for Checkpoint
+Add a Run function action to call LoadConfiguration
+
+Add an If action:
+
+Condition: FILE EXISTS "%checkpointFile%"
+Inside the If block: Add actions to read and parse the checkpoint file
+Step 10: Launch MT5 with Error Handling
+Add a Set variable action:
+
+Variable name: retryCount
+Value: 0
+Add a While loop:
+
+Condition: %retryCount% < %maxRetries%
+Inside the loop:
+Add a Try-Catch block with actions to launch MT5
+Add error handling and retry logic
+Step 11: Create Main Loops for EA, Currency, and Timeframe Testing
+Add a For each loop for EAs:
+List: %eaList%
+Current item variable: eaFile
+Index variable: eaIndex
+Inside the loop:
+Add logic to extract EA name
+Add a nested For each loop for currencies
+Inside that loop:
+Add logic to open Strategy Tester and configure it
+Add a nested For each loop for timeframes
+Inside that loop:
+Add logic to run tests and save reports
+Step 12: Add Cleanup Logic
+Add actions to close MT5, remove checkpoint file, and generate a summary report after all tests are complete.
+
+Step 13: Save and Test Your Flow
+Click "Save" to save your flow
+Test the flow with a small subset of EAs, currencies, and timeframes to ensure it works correctly
+Make adjustments as needed
+Important Notes:
+Error Handling: Make sure to implement proper error handling throughout the flow using Try-Catch blocks.
+
+UI Interaction: The script heavily relies on UI interaction with MetaTrader 5. Make sure the UI selectors are correctly configured.
+
+Resource Management: The script includes sophisticated resource management. Implement the system checks and adaptive wait times to prevent system overload.
+
+Checkpointing: The checkpointing mechanism is crucial for resuming long-running tests. Ensure this is implemented correctly.
+
+Configuration: Update the default configuration paths to match your system.
+
+This is a complex automation script, so I recommend implementing it in stages, testing each component thoroughly before moving to the next. Start with the basic structure and core functionality, then add the more advanced features like adaptive waiting and performance history.
