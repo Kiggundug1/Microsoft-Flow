@@ -1,0 +1,8 @@
+{
+    "schemaVersion": "1.0",
+    "name": "Backtest_Flow_Imported",
+    "description": "Auto-generated flow to automate MT5 backtesting.",
+    "version": "1.0.0",
+    "author": "ChatGPT",
+    "createdDateTime": "2025-05-12T00:00:00Z"
+}
