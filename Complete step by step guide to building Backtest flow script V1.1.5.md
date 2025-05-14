@@ -1,5 +1,3 @@
-Context
-— none fetched
 Complete Step-by-Step Guide to Creating the MT5 Backtest Flow Script in Power Automate Desktop
 I'll guide you through creating the entire MT5 Backtest Flow script in Power Automate Desktop, explaining each step in detail as if teaching a 12-year-old. I won't skip any parts this time.
 
@@ -339,6 +337,20 @@ details: ""
 Add a "Return" action:
 Return value: false
 Inside Else:
+Call the LogMessage function:
+level: `"DEBUG
+Please provide the remaining information since I have saved this part
+
+
+
+Context
+— none fetched
+Continuing the Complete Step-by-Step Guide to Creating the MT5 Backtest Flow Script
+Let's continue from where we left off with creating the helper functions:
+
+10.2. VerifyAndSetValue Function (continued)
+Inside the Else block:
+
 Call the LogMessage function:
 level: "DEBUG"
 message: "%fieldName% already set to '%targetValue%', skipping"
