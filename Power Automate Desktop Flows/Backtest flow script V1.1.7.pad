@@ -1834,4 +1834,3 @@ ON ERROR
     # Display completion message with warning
     DISPLAY MESSAGE "Backtests completed with some errors. Check log file for details."
 END ONERROR
-
