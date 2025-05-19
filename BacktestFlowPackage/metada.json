@@ -1,0 +1,7 @@
+{
+  "flowDisplayName": "MT5 Backtest Automation V1.1.5",
+  "flowDescription": "Automates backtesting of trading strategies in MetaTrader 5 across multiple EAs, currency pairs, and timeframes",
+  "flowVersion": "1.1.5",
+  "flowAuthor": "Original by Kiggundug1",
+  "flowRequirements": "Requires MetaTrader 5 to be installed"
+}

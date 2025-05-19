@@ -1,0 +1,7 @@
+{
+  "packageVersion": "1.0.0",
+  "packageName": "MT5 Backtest Automation",
+  "packageDescription": "Complete automation package for MetaTrader 5 backtesting",
+  "packageAuthor": "Original by Kiggundug1",
+  "packageContents": ["Backtest flow script V1.1.5.pad", "metadata.json"]
+}
